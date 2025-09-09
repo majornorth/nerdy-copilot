@@ -14,6 +14,7 @@ export const LessonPlanDetail: React.FC = () => {
     setView, 
     activeTabId, 
     addMessage,
+    setLoading,
     setDraftMessage,
     setPromptContext,
     clearPromptContext,
@@ -176,43 +177,88 @@ export const LessonPlanDetail: React.FC = () => {
   const handleChatSubmit = async (userPrompt: string) => {
     if (!editorInstance) return;
     const editor = editorInstance;
-    // Capture selection and current content
-    const { from, to } = editor.state.selection;
-    const selected = from !== to ? editor.state.doc.textBetween(from, to, '\n') : '';
+    // Capture full current content as HTML for context
     const beforeHTML = editor.getHTML();
 
-    // Combine context + user prompt
-    const ctx = (promptContextActive ? (selected || '') : '');
-    const prompt = `${ctx ? `Selected content (context):\n\n${ctx}\n\n` : ''}User request: ${userPrompt}\n\nReturn only the revised text to place into the document.`;
-
     try {
-      const res = await openaiService.sendMessage(prompt, []);
-      const suggestion = (res.message || '').trim();
-      if (!suggestion) return;
+      setLoading(true);
+      // Ask OpenAI to update the entire lesson plan and return full HTML
+      const updatedHtml = await openaiService.updateLessonPlanWithContext(userPrompt, beforeHTML);
+      if (!updatedHtml) return;
 
-      // If an AI placeholder exists, replace it with the suggestion
-      const root = editor.view.dom as HTMLElement;
-      const placeholderEl = root.querySelector('[data-ai-placeholder="true"]') as HTMLElement | null;
-      if (placeholderEl) {
-        const start = editor.view.posAtDOM(placeholderEl, 0);
-        const end = editor.view.posAtDOM(placeholderEl, (placeholderEl.childNodes?.length ?? 0));
-        editor.chain().focus().insertContentAt({ from: start, to: end }, suggestion).run();
-      } else if (from !== to) {
-        // Replace selection if present
-        editor.chain().focus().insertContentAt({ from, to }, suggestion).run();
-      } else {
-        // Insert at caret
-        editor.chain().focus().insertContent(suggestion).run();
-      }
+      // Post-process HTML to ensure the requested number of practice problems
+      const finalHtml = enforcePracticeProblemCount(updatedHtml, userPrompt);
+
+      // Apply full-document replacement while allowing undo via pendingChange banner
+      editor.commands.setContent(finalHtml, false);
       const afterHTML = editor.getHTML();
-      setPendingChange({ beforeHTML, afterHTML, description: 'Applied AI suggestion to selection.' });
-      // Clear context preview after applying
+      setPendingChange({ beforeHTML, afterHTML, description: 'Updated lesson plan based on your request.' });
+
+      // Persist changes (prefer TipTap JSON if available)
+      try {
+        const json = editor.getJSON?.();
+        if (json) {
+          triggerSave(JSON.stringify(json));
+        }
+      } catch {}
+
+      // Clear any selection-context preview
       clearPromptContext();
       setPromptContextActive(false);
     } catch (e) {
-      console.error('Ask AI apply failed', e);
+      console.error('Lesson plan update failed', e);
+    }
+    finally {
+      setLoading(false);
     }
   };
+
+  // If prompt requests N practice problems, ensure the list has exactly N items (pad if short, trim if long)
+  function enforcePracticeProblemCount(html: string, prompt: string): string {
+    const match = prompt.match(/(\d+)\s+(practice\s+problems|questions)/i);
+    const required = match ? parseInt(match[1], 10) : NaN;
+    if (!required || required <= 0) return html;
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      // Find the 'Practice Problems' section list
+      const headings = Array.from(container.querySelectorAll('h1,h2,h3,h4')) as HTMLElement[];
+      let list: HTMLOListElement | HTMLUListElement | null = null;
+      for (const h of headings) {
+        if (/practice\s*problems/i.test(h.textContent || '')) {
+          // Look for the nearest following list
+          let n: Element | null = h.nextElementSibling;
+          while (n && !(n.tagName === 'OL' || n.tagName === 'UL')) {
+            n = n.nextElementSibling;
+          }
+          if (n && (n.tagName === 'OL' || n.tagName === 'UL')) {
+            list = n as any;
+            break;
+          }
+        }
+      }
+      if (!list) return html;
+      const items = Array.from(list.querySelectorAll(':scope > li')) as HTMLLIElement[];
+      // Trim extras if too many
+      if (items.length > required) {
+        for (let i = items.length - 1; i >= required; i--) {
+          items[i].remove();
+        }
+      }
+      // Pad with minimal placeholders if too few
+      if (items.length < required) {
+        const start = items.length + 1;
+        for (let i = start; i <= required; i++) {
+          const li = document.createElement('li');
+          li.textContent = `Problem ${i}:`;
+          list.appendChild(li);
+        }
+      }
+      return container.innerHTML;
+    } catch {
+      return html;
+    }
+  }
 
   // When Ask AI is clicked from the editor selection, prefill chat input with context and open chat
   const handleAskAIFromSelection = (selectedText: string) => {

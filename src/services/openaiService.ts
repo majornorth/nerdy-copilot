@@ -320,6 +320,84 @@ Would you like me to modify the code or create a different type of visualization
     return this.sendTextMessage(immutableMessage, conversationHistory);
   }
 
+  // Direct chat with custom messages, bypassing math/image heuristics
+  public async sendCustomChat(messages: ChatMessage[]): Promise<ChatResponse> {
+    // Prefer Supabase Edge Function if configured with a valid JWT-style key
+    const hasValidSupabaseJwt = this.supabaseAnonKey && this.supabaseAnonKey.includes('.') && this.supabaseAnonKey.split('.').length >= 3;
+    if (this.supabaseUrl && this.supabaseAnonKey && hasValidSupabaseJwt) {
+      const functionUrl = `${this.supabaseUrl}/functions/v1/openai-chat`;
+      try {
+        const response = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.supabaseAnonKey}`,
+            'Content-Type': 'application/json',
+            'x-client-info': 'tutor-copilot@1.0.0',
+            // Provide apikey as well for some environments
+            'apikey': this.supabaseAnonKey,
+          },
+          body: JSON.stringify({ messages }),
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Edge function failed: ${errorText}`);
+        }
+        return response.json();
+      } catch (error) {
+        console.warn('Supabase custom chat failed, falling back to direct:', error);
+        // Fall through to direct
+      }
+    }
+    return this.sendCustomChatDirect(messages);
+  }
+
+  private async sendCustomChatDirect(messages: ChatMessage[]): Promise<ChatResponse> {
+    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured. Please set VITE_OPENAI_API_KEY in your environment variables.');
+    }
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages,
+        max_tokens: 1500,
+        temperature: 0.5,
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI API error: ${errorText}`);
+    }
+    const data = await response.json();
+    const aiMessage = data.choices[0]?.message?.content;
+    if (!aiMessage) throw new Error('No response from AI');
+    return { message: aiMessage, usage: data.usage };
+  }
+
+  // Helper specialized for lesson plan updates to ensure HTML-only outputs
+  public async updateLessonPlanWithContext(userRequest: string, lessonPlanHtml: string): Promise<string> {
+    const systemPrompt: ChatMessage = {
+      role: 'system',
+      content: [
+        'You are an expert instructional designer and lesson plan editor.',
+        'Apply the user request to the provided lesson plan.',
+        'Return only the FULL UPDATED LESSON PLAN as clean HTML suitable for a rich text editor (TipTap).',
+        'Do not include code fences, backticks, markdown, or commentary—only the updated HTML.',
+      ].join('\n')
+    };
+    const userPrompt: ChatMessage = {
+      role: 'user',
+      content: `Current lesson plan (HTML):\n\n${lessonPlanHtml}\n\nUser request: ${userRequest}\n\nPlease return only the full updated lesson plan in HTML.`
+    };
+    const result = await this.sendCustomChat([systemPrompt, userPrompt]);
+    return (result.message || '').trim();
+  }
+
   private async generateImageResponse(message: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
     // Generate both image and explanatory text
     const imagePrompt = this.createImagePrompt(message);

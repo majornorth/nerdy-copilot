@@ -5,6 +5,7 @@ import { useFileAttachments } from '../../hooks/useFileAttachments';
 import { openaiService } from '../../services/openaiService';
 import { useCopilotStore } from '../../stores/copilotStore';
 import { MessageFeedback } from './MessageFeedback';
+import { CopilotLoadingAnimation } from './CopilotLoadingAnimation';
 
 interface CopilotInputProps {
   onSubmit?: (message: string) => void;
@@ -108,7 +109,7 @@ function BottomRow({ onSubmit, hasMessage, onAttachFiles }: { onSubmit: () => vo
 // Main chat input component
 export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholder: placeholderProp }) => {
   const [message, setMessage] = useState('');
-  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory, draftMessage, clearDraftMessage, promptContext, promptContextActive, clearPromptContext, setPromptContextActive } = useCopilotStore();
+  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory, draftMessage, clearDraftMessage, promptContext, promptContextActive, clearPromptContext, setPromptContextActive, isLoading } = useCopilotStore();
   const { updateMessageWithImage } = useCopilotStore();
   
   // Get current tab to check if it has messages
@@ -291,6 +292,12 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
             placeholder={placeholder}
             hasMessages={!!hasMessages}
           />
+          {isLoading && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <CopilotLoadingAnimation size="sm" />
+              <span>Processing…</span>
+            </div>
+          )}
           <BottomRow 
             onSubmit={handleSubmit}
             hasMessage={message.trim().length > 0}

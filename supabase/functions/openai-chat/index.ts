@@ -8,6 +8,8 @@ interface ChatMessage {
 interface ChatRequest {
   message: string;
   conversationHistory?: ChatMessage[];
+  // New optional direct messages override
+  messages?: ChatMessage[];
 }
 
 Deno.serve(async (req) => {
@@ -19,18 +21,43 @@ Deno.serve(async (req) => {
   try {
     console.log('OpenAI Chat function called');
     
-    const { message, conversationHistory = [] }: ChatRequest = await req.json()
-    console.log('Request data:', { message: message?.substring(0, 50) + '...', historyLength: conversationHistory.length });
+    const body: ChatRequest = await req.json()
+    const { message, conversationHistory = [], messages } = body
+    console.log('Request data:', { message: message?.substring?.(0, 50) + '...', historyLength: conversationHistory.length, customMessages: Array.isArray(messages) ? messages.length : 0 });
 
-    if (!message) {
-      console.error('No message provided');
-      return new Response(
-        JSON.stringify({ error: 'Message is required' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    // Build messages either from direct messages or from message + history
+    let builtMessages: ChatMessage[] | null = null
+    if (Array.isArray(messages) && messages.length > 0) {
+      builtMessages = messages
+    } else {
+      if (!message) {
+        console.error('No message provided')
+        return new Response(
+          JSON.stringify({ error: 'Message is required' }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        )
+      }
+      builtMessages = [
+        {
+          role: 'system',
+          content: `You are an AI tutoring assistant helping educators create better learning experiences. You specialize in:
+        - Creating engaging lesson plans
+        - Generating practice problems and solutions
+        - Simplifying complex topics for students
+        - Providing teaching strategies and tips
+        - Helping with curriculum development
+        
+        Always provide helpful, educational, and actionable responses. Keep your tone professional but friendly.`
+        },
+        ...conversationHistory,
+        {
+          role: 'user',
+          content: message
         }
-      )
+      ]
     }
 
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
@@ -65,7 +92,7 @@ Deno.serve(async (req) => {
       }
     ]
 
-    console.log('Calling OpenAI API with', messages.length, 'messages');
+    console.log('Calling OpenAI API with', builtMessages.length, 'messages');
     
     // Call OpenAI API
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -76,9 +103,9 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'gpt-3.5-turbo',
-        messages: messages,
-        max_tokens: 1000,
-        temperature: 0.7,
+        messages: builtMessages,
+        max_tokens: 1500,
+        temperature: 0.5,
       }),
     })
 
