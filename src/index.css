@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand Color System */
+:root {
+  --brand-primary: #4A4BB6;
+  --brand-primary-50: #f0f0ff;
+  --brand-primary-100: #e0e1ff;
+  --brand-primary-200: #c7c9ff;
+  --brand-primary-300: #a5a8ff;
+  --brand-primary-400: #8084ff;
+  --brand-primary-500: #4A4BB6;
+  --brand-primary-600: #3d3e9a;
+  --brand-primary-700: #32337d;
+  --brand-primary-800: #282965;
+  --brand-primary-900: #252654;
+  --brand-primary-hover: #3d3e9a;
+  --brand-primary-focus: #32337d;
+  --brand-primary-light: #f0f0ff;
+  --brand-background: #FAF9FE;
+  --brand-lesson-plan: #F9F8F7;
+  --brand-border-light: #E0E0E0;
+}
+
+/* Utility classes for brand colors */
+.text-brand-primary {
+  color: var(--brand-primary);
+}
+
+.bg-brand-primary {
+  background-color: var(--brand-primary);
+}
+
+.border-brand-primary {
+  border-color: var(--brand-primary);
+}
+
+.hover\:text-brand-primary:hover {
+  color: var(--brand-primary-hover);
+}
+
+.hover\:bg-brand-primary:hover {
+  background-color: var(--brand-primary-hover);
+}
+
+.focus\:ring-brand-primary:focus {
+  --tw-ring-color: var(--brand-primary);
+}
+
+.bg-brand-background {
+  background-color: var(--brand-background);
+}
+
+.bg-brand-lesson-plan {
+  background-color: var(--brand-lesson-plan);
+}
+
+.border-brand-border-light {
+  border-color: var(--brand-border-light);
+}
+
+/* Hide scrollbar for tab container */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
