@@ -9,6 +9,8 @@ interface FloatingMenuProps {
   isVisible: boolean;
   position: { x: number; y: number };
   onClose: () => void;
+  // Optional: if provided, clicking Ask AI will route selection to chat input via parent handler
+  onAskAISelection?: (selectedText: string) => void;
 }
 
 /**
@@ -19,7 +21,8 @@ export const FloatingMenu: React.FC<FloatingMenuProps> = ({
   editor,
   isVisible,
   position,
-  onClose
+  onClose,
+  onAskAISelection
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -152,6 +155,16 @@ export const FloatingMenu: React.FC<FloatingMenuProps> = ({
 
   // Ask AI handling
   const handleAskAI = async () => {
+    // If parent provided a handler, send selection to chat input rather than inline modal
+    if (onAskAISelection) {
+      const { state } = editor;
+      const { from, to } = state.selection;
+      const selected = from !== to ? state.doc.textBetween(from, to, '\n') : '';
+      onAskAISelection(selected);
+      onClose();
+      return;
+    }
+
     setAiError(null);
     setAiResponse(null);
     const { state } = editor;
@@ -390,6 +403,15 @@ export const FloatingMenu: React.FC<FloatingMenuProps> = ({
       <div className="relative">
         <button
           onClick={() => {
+            if (onAskAISelection) {
+              // Directly route selection to chat
+              const { state } = editor;
+              const { from, to } = state.selection;
+              const selected = from !== to ? state.doc.textBetween(from, to, '\n') : '';
+              onAskAISelection(selected);
+              onClose();
+              return;
+            }
             setShowAIInput(!showAIInput);
             setShowColorPicker(false);
             setShowHighlightPicker(false);
@@ -401,7 +423,7 @@ export const FloatingMenu: React.FC<FloatingMenuProps> = ({
           <Sparkle size={16} weight="regular" />
         </button>
 
-        {showAIInput && (
+        {showAIInput && !onAskAISelection && (
           <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 min-w-[260px] max-w-[360px]">
             <div className="text-sm text-gray-600 mb-2">Ask AI about the selection</div>
             <textarea

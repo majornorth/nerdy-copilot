@@ -3,6 +3,7 @@ import { ArrowLeft, Download, Share, Image, Bold, Italic, List, ListNumbers, Tex
 import { mockLessonPlans } from '../../../data/mockSessionBriefs';
 import { useCopilotStore } from '../../../stores/copilotStore';
 import { CopilotInput } from '../CopilotInput';
+import { openaiService } from '../../../services/openaiService';
 import { InlineEditor } from '../editor/InlineEditor';
 import { EditorToolbar } from '../editor/EditorToolbar';
 import { useAutoSave } from '../../../hooks/useAutoSave';
@@ -13,10 +14,17 @@ export const LessonPlanDetail: React.FC = () => {
     setView, 
     activeTabId, 
     addMessage,
+    setDraftMessage,
+    setPromptContext,
+    clearPromptContext,
+    setPromptContextActive,
+    promptContextActive,
     updateLessonPlan,
     saveLessonPlan,
     getLessonPlan,
-    lessonPlanSaveStatus
+    lessonPlanSaveStatus,
+    lessonPlans,
+    loadLessonPlanFromDatabase
   } = useCopilotStore();
   const [lessonContent, setLessonContent] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
@@ -51,14 +59,33 @@ export const LessonPlanDetail: React.FC = () => {
     enabled: isEditing
   });
 
-  // Convert lesson plan data to HTML content
+  // Try to load from database when an ID is selected
+  useEffect(() => {
+    if (!selectedLessonPlanId) return;
+    try { loadLessonPlanFromDatabase(selectedLessonPlanId); } catch {}
+  }, [selectedLessonPlanId, loadLessonPlanFromDatabase]);
+
+  // Convert lesson plan data to content (prefer JSON if available)
   useEffect(() => {
     if (lessonPlan && selectedLessonPlanId) {
       // Check if we have a saved version in the store first
-      const storedPlan = getLessonPlan(selectedLessonPlanId);
+      const storedPlan = lessonPlans[selectedLessonPlanId] || getLessonPlan(selectedLessonPlanId);
       
       if (storedPlan && storedPlan.content) {
-        setLessonContent(storedPlan.content);
+        const contentStr = storedPlan.content;
+        const looksLikeJSON = typeof contentStr === 'string' && contentStr.trim().startsWith('{') && contentStr.includes('"type":"doc"');
+        if (looksLikeJSON) {
+          try {
+            const parsed = JSON.parse(contentStr);
+            if (editorInstance) {
+              editorInstance.commands.setContent(parsed, false);
+              setLessonContent(editorInstance.getHTML());
+              return;
+            }
+          } catch {}
+        }
+        // Treat as HTML
+        setLessonContent(contentStr);
         return;
       }
       
@@ -90,7 +117,7 @@ export const LessonPlanDetail: React.FC = () => {
       `.trim();
       setLessonContent(htmlContent);
     }
-  }, [lessonPlan, selectedLessonPlanId, getLessonPlan]);
+  }, [lessonPlan, selectedLessonPlanId, getLessonPlan, editorInstance, lessonPlans]);
 
   if (!lessonPlan) {
     return (
@@ -126,34 +153,92 @@ export const LessonPlanDetail: React.FC = () => {
   };
 
   const handleContentChangeWithSave = (newContent: string, hasChanges: boolean) => {
+    // Mirror HTML for UI purposes
     setLessonContent(newContent);
     
-    // Trigger auto-save if there are changes and we're in edit mode
+    // Trigger auto-save; persist TipTap JSON for fidelity (math/images)
     if (hasChanges && isEditing) {
+      try {
+        const json = editorInstance?.getJSON();
+        if (json) {
+          triggerSave(JSON.stringify(json));
+          return;
+        }
+      } catch {}
+      // Fallback to HTML if JSON unavailable
       triggerSave(newContent);
     }
   };
 
-  const handleChatSubmit = (message: string) => {
-    if (!activeTabId) return;
+  // Pending change banner state
+  const [pendingChange, setPendingChange] = useState<{ beforeHTML: string; afterHTML: string; description: string } | null>(null);
 
-    // Create context from current lesson content
-    const documentContent = lessonContent;
+  const handleChatSubmit = async (userPrompt: string) => {
+    if (!editorInstance) return;
+    const editor = editorInstance;
+    // Capture selection and current content
+    const { from, to } = editor.state.selection;
+    const selected = from !== to ? editor.state.doc.textBetween(from, to, '\n') : '';
+    const beforeHTML = editor.getHTML();
 
-    const lessonPlanContext = `
-Current Lesson Plan Document:
+    // Combine context + user prompt
+    const ctx = (promptContextActive ? (selected || '') : '');
+    const prompt = `${ctx ? `Selected content (context):\n\n${ctx}\n\n` : ''}User request: ${userPrompt}\n\nReturn only the revised text to place into the document.`;
 
-${documentContent}
+    try {
+      const res = await openaiService.sendMessage(prompt, []);
+      const suggestion = (res.message || '').trim();
+      if (!suggestion) return;
 
----
-
-User Request: ${message}
-
-Please provide specific suggestions or modifications to improve this lesson plan based on the user's request. Focus on actionable changes that can enhance the learning experience.`;
-
-    addMessage(activeTabId, lessonPlanContext, 'user');
-    setView('chat');
+      // If an AI placeholder exists, replace it with the suggestion
+      const root = editor.view.dom as HTMLElement;
+      const placeholderEl = root.querySelector('[data-ai-placeholder="true"]') as HTMLElement | null;
+      if (placeholderEl) {
+        const start = editor.view.posAtDOM(placeholderEl, 0);
+        const end = editor.view.posAtDOM(placeholderEl, (placeholderEl.childNodes?.length ?? 0));
+        editor.chain().focus().insertContentAt({ from: start, to: end }, suggestion).run();
+      } else if (from !== to) {
+        // Replace selection if present
+        editor.chain().focus().insertContentAt({ from, to }, suggestion).run();
+      } else {
+        // Insert at caret
+        editor.chain().focus().insertContent(suggestion).run();
+      }
+      const afterHTML = editor.getHTML();
+      setPendingChange({ beforeHTML, afterHTML, description: 'Applied AI suggestion to selection.' });
+      // Clear context preview after applying
+      clearPromptContext();
+      setPromptContextActive(false);
+    } catch (e) {
+      console.error('Ask AI apply failed', e);
+    }
   };
+
+  // When Ask AI is clicked from the editor selection, prefill chat input with context and open chat
+  const handleAskAIFromSelection = (selectedText: string) => {
+    const trimmed = (selectedText || '').trim();
+    setPromptContext(trimmed);
+    setPromptContextActive(true);
+    // Keep user on this page; optionally prefill input lightly
+    setDraftMessage('');
+  };
+
+  // Keep prompt context synced with current selection while active
+  useEffect(() => {
+    if (!editorInstance) return;
+    const editor = editorInstance;
+    const handler = () => {
+      try {
+        if (!promptContextActive) return;
+        const { from, to } = editor.state.selection;
+        if (from === to) return;
+        const text = editor.state.doc.textBetween(from, to, '\n').trim();
+        setPromptContext(text);
+      } catch {}
+    };
+    editor.on?.('selectionUpdate', handler);
+    return () => { editor.off?.('selectionUpdate', handler); };
+  }, [editorInstance, promptContextActive, setPromptContext]);
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -228,7 +313,10 @@ Please provide specific suggestions or modifications to improve this lesson plan
       {isEditing && (
         <div className="border-b border-gray-100 bg-white px-0 py-0">
           <div className="max-w-4xl mx-auto">
-            <EditorToolbar editor={editorInstance} />
+            <EditorToolbar 
+              editor={editorInstance}
+              onAskAISelection={handleAskAIFromSelection}
+            />
           </div>
         </div>
       )}
@@ -244,17 +332,42 @@ Please provide specific suggestions or modifications to improve this lesson plan
             placeholder="Write, press 'space' for AI, '/' for commands..."
             className="w-full"
             onEditorReady={(ed) => setEditorInstance(ed)}
-            onReorder={(html) => { if (isEditing) triggerSave(html); }}
+            onReorder={() => { if (isEditing && editorInstance) { try { triggerSave(JSON.stringify(editorInstance.getJSON())); } catch { /* fallback ignored */ } } }}
+            onAskAISelection={handleAskAIFromSelection}
           />
         </div>
       </div>
 
-      {/* Chat Input */}
+      {/* Chat Input or change confirmation */}
       <div className="p-4 flex-shrink-0 bg-white border-t border-gray-100">
-        <CopilotInput 
-          onSubmit={handleChatSubmit}
-          placeholder="Ask for changes or improvements to this lesson plan"
-        />
+        {pendingChange ? (
+          <div className="flex items-center justify-between border border-gray-200 rounded-lg p-3 bg-gray-50">
+            <div className="text-sm text-gray-700">{pendingChange.description}</div>
+            <div className="flex items-center gap-2">
+              <button
+                className="px-3 py-1.5 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+                onClick={() => {
+                  // Undo: restore previous HTML
+                  try { editorInstance?.commands.setContent(pendingChange.beforeHTML, false); } catch {}
+                  setPendingChange(null);
+                }}
+              >
+                Undo
+              </button>
+              <button
+                className="px-3 py-1.5 text-sm rounded bg-brand-primary text-white hover:bg-brand-primary-hover"
+                onClick={() => setPendingChange(null)}
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        ) : (
+          <CopilotInput 
+            onSubmit={handleChatSubmit}
+            placeholder="Ask for changes or improvements to this lesson plan"
+          />
+        )}
       </div>
     </div>
   );

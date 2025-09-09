@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { cn } from '../../../utils/cn';
-import { uploadImageAndGetPublicUrl } from '../../../services/uploadService';
+import { uploadImageAndGetPublicUrl, fileToDataUrl } from '../../../services/uploadService';
 import katex from 'katex';
 
 interface Command {
@@ -63,6 +63,14 @@ export const SlashCommandsMenu: React.FC<SlashCommandsMenuProps> = ({
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
+        // Capture the current selection and block context BEFORE opening the dialog
+        const { state } = editor;
+        const selFrom = state.selection.from;
+        const selTo = state.selection.to;
+        const $from = (state.selection as any).$from;
+        const blockStart = $from.start();
+        const blockEnd = $from.end();
+        const isEmptyBlock = !$from.parent || $from.parent.content.size === 0 || (($from.parent.textContent || '').trim() === '');
         input.onchange = async (e) => {
           const files = (e.target as HTMLInputElement).files;
           if (!files || files.length === 0) return;
@@ -71,16 +79,21 @@ export const SlashCommandsMenu: React.FC<SlashCommandsMenuProps> = ({
           try {
             // Try uploading to Supabase for a persistent URL
             const publicUrl = await uploadImageAndGetPublicUrl(file);
-            let src: string;
+            // Fallback to data URL for persistence when Supabase is not configured
+            const src: string = publicUrl || await fileToDataUrl(file);
 
-            if (publicUrl) {
-              src = publicUrl;
+            // Restore selection near where the slash command was initiated
+            editor.chain().focus().setTextSelection({ from: selFrom, to: selTo }).run();
+            // If the current block is empty, replace the block entirely with the image
+            if (isEmptyBlock) {
+              editor.chain().focus()
+                .deleteRange({ from: blockStart, to: blockEnd })
+                .insertContentAt(blockStart, { type: 'image', attrs: { src, alt: file.name } })
+                .run();
             } else {
-              // Fallback to object URL if upload unavailable
-              src = URL.createObjectURL(file);
+              // Otherwise insert at the restored selection
+              editor.chain().focus().insertContent({ type: 'image', attrs: { src, alt: file.name } }).run();
             }
-
-            editor.chain().focus().setImage({ src, alt: file.name }).run();
           } catch (error) {
             console.error('Failed to insert image:', error);
             alert('Image upload failed. Please try again.');

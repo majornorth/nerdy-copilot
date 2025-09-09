@@ -108,7 +108,7 @@ function BottomRow({ onSubmit, hasMessage, onAttachFiles }: { onSubmit: () => vo
 // Main chat input component
 export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholder: placeholderProp }) => {
   const [message, setMessage] = useState('');
-  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory } = useCopilotStore();
+  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory, draftMessage, clearDraftMessage, promptContext, promptContextActive, clearPromptContext, setPromptContextActive } = useCopilotStore();
   const { updateMessageWithImage } = useCopilotStore();
   
   // Get current tab to check if it has messages
@@ -126,6 +126,20 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
 
   // Tools/selector removed per request
 
+  // If another component sets a draft message (e.g., Ask AI from editor), prefill the input
+  React.useEffect(() => {
+    if (draftMessage && typeof draftMessage === 'string') {
+      setMessage(draftMessage);
+      clearDraftMessage();
+      // Resize textarea visually if it exists
+      const textarea = document.querySelector('.copilot-input-container textarea') as HTMLTextAreaElement | null;
+      if (textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${Math.max(27, textarea.scrollHeight)}px`;
+      }
+    }
+  }, [draftMessage, clearDraftMessage]);
+
   const handleSubmit = () => {
     if (message.trim()) {
       const userMessage = message.trim();
@@ -142,7 +156,12 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
         textarea.style.height = 'auto';
         textarea.style.height = '27px';
       }
-      
+      // If parent provided onSubmit, delegate and return
+      if (onSubmit) {
+        onSubmit(userMessage);
+        return;
+      }
+      // Fallback: legacy direct chat flow
       handleSendMessage(userMessage);
     }
   };
@@ -227,7 +246,7 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
   };
 
   return (
-    <div className="bg-white relative rounded-lg shrink-0 w-full space-y-3 copilot-input-container">
+    <div className="bg-white relative rounded-lg shrink-0 w-full copilot-input-container">
       {/* File attachments */}
       {attachedFiles.length > 0 && (
         <div className="px-4">
@@ -242,9 +261,30 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
       <div className="absolute border-[#e3e2e7] border-[0.998944px] border-solid inset-0 pointer-events-none rounded-lg" />
       <div className="relative size-full">
         <div 
-          className="box-border content-stretch flex flex-col gap-2.5 items-start justify-start px-4 py-3 relative w-full"
+          className="box-border content-stretch flex flex-col items-start justify-start px-4 py-3 gap-2 relative w-full"
           onKeyPress={handleKeyPress}
         >
+          {/* Prompt context preview (inside the bordered container with top spacing) */}
+          {promptContextActive && promptContext && (
+            <div className="w-full mt-1 mb-1">
+              <div className="border border-gray-200 rounded-md p-2 bg-gray-50 flex items-start justify-between gap-2">
+                <div className="text-xs text-gray-600 leading-snug pr-2">
+                  <div className="font-medium text-gray-700 mb-1">Selected content (context):</div>
+                  <div className="max-h-24 overflow-auto text-gray-700 whitespace-pre-wrap">
+                    {promptContext.length > 240 ? `${promptContext.slice(0, 240)}…` : promptContext}
+                  </div>
+                </div>
+                <button
+                  aria-label="Remove context"
+                  className="ml-2 shrink-0 text-gray-500 hover:text-gray-700"
+                  onClick={() => { clearPromptContext(); setPromptContextActive(false); }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           <InputField 
             value={message}
             onChange={setMessage}

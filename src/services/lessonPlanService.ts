@@ -23,6 +23,7 @@ export interface LessonPlanData {
 }
 
 export interface CreateLessonPlanData {
+  id?: string; // app-level id (stored in app_id column)
   title: string;
   content: string;
   student: string;
@@ -57,6 +58,7 @@ class LessonPlanService {
       const { data: lessonPlan, error } = await supabase
         .from('lesson_plans')
         .insert([{
+          app_id: data.id, // store app id in a text column
           title: data.title,
           content: data.content,
           student: data.student,
@@ -100,7 +102,7 @@ class LessonPlanService {
       const { data: lessonPlan, error } = await supabase
         .from('lesson_plans')
         .update(updateData)
-        .eq('id', id)
+        .eq('app_id', id)
         .select()
         .single();
 
@@ -123,14 +125,31 @@ class LessonPlanService {
     }
 
     try {
-      const { data: lessonPlan, error } = await supabase
+      // Prefer lookup by app_id (text); fall back to id (uuid) only if the id looks like a UUID
+      let { data: lessonPlan, error } = await supabase
         .from('lesson_plans')
         .select('*')
-        .eq('id', id)
-        .single();
+        .eq('app_id', id)
+        .maybeSingle();
+
+      // Only try uuid lookup if the provided id matches a uuid format to avoid 22P02 errors
+      const looksLikeUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(id);
+      if (!lessonPlan && looksLikeUuid) {
+        const res = await supabase
+          .from('lesson_plans')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+        lessonPlan = res.data as any;
+        error = res.error as any;
+      }
 
       if (error) {
         console.error('Error fetching lesson plan:', error);
+        return null;
+      }
+
+      if (!lessonPlan) {
         return null;
       }
 
@@ -176,7 +195,7 @@ class LessonPlanService {
       const { error } = await supabase
         .from('lesson_plans')
         .delete()
-        .eq('id', id);
+        .eq('app_id', id);
 
       if (error) {
         console.error('Error deleting lesson plan:', error);
@@ -219,7 +238,7 @@ class LessonPlanService {
   // Helper method to convert database format to application format
   private convertFromDatabase(dbPlan: any): LessonPlanData {
     return {
-      id: dbPlan.id,
+      id: dbPlan.app_id || dbPlan.id,
       title: dbPlan.title,
       content: dbPlan.content,
       student: dbPlan.student,

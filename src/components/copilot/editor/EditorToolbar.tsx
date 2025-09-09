@@ -1,14 +1,15 @@
 import React from 'react';
 import { Editor } from '@tiptap/react';
 import { cn } from '../../../utils/cn';
-import { Bold, Italic, Underline, Strikethrough, Code, Link as LinkIcon, ListBullets, ListNumbers, TextHOne, TextHTwo, TextHThree, TextT } from '../../ui/Icon';
+import { Bold, Italic, Underline, Strikethrough, Code, Link as LinkIcon, ListBullets, ListNumbers, TextHOne, TextHTwo, TextHThree, TextT, Sparkle } from '../../ui/Icon';
 
 interface EditorToolbarProps {
   editor: Editor | null;
   className?: string;
+  onAskAISelection?: (selectedText: string) => void;
 }
 
-export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className }) => {
+export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className, onAskAISelection }) => {
   if (!editor) return null;
 
   const promptForLink = () => {
@@ -34,12 +35,33 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className 
     editor.chain().focus().clearNodes().setParagraph().run();
   };
 
+  const handleAskAI = () => {
+    const { state } = editor;
+    const { from, to } = state.selection;
+    const selected = from !== to ? state.doc.textBetween(from, to, '\\n') : '';
+    if (onAskAISelection) {
+      onAskAISelection(selected);
+    }
+  };
+
   return (
-    <div className={cn('w-full bg-white border-b border-gray-100', className)}>
-      <div className="px-4 py-2 flex flex-wrap items-center gap-1">
+    <div className={cn('w-full bg-white border-b border-gray-100 overflow-x-auto', className)}>
+      <div className="px-4 py-2 flex flex-nowrap items-center gap-1 min-w-max overflow-x-auto overflow-y-hidden">
+        {/* Ask AI (always visible at far left) */}
+        <button
+          className="px-2 py-1 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 flex items-center gap-1 shrink-0"
+          onClick={handleAskAI}
+          title="Ask AI about the selection"
+        >
+          <Sparkle size={16} />
+          <span className="text-xs sm:text-sm">Ask AI</span>
+        </button>
+
+        {/* Divider between Ask AI and Text */}
+        <div className="w-px h-5 bg-gray-200 mx-1" />
         {/* Text (paragraph) */}
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('paragraph') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('paragraph') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={applyParagraph}
           title="Text"
         >
@@ -50,35 +72,35 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className 
         <div className="w-px h-5 bg-gray-200 mx-1" />
 
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('bold') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('bold') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleBold().run()}
           title="Bold"
         >
           <Bold size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('italic') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('italic') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleItalic().run()}
           title="Italic"
         >
           <Italic size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('underline') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('underline') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleUnderline().run()}
           title="Underline"
         >
           <Underline size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('strike') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('strike') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleStrike().run()}
           title="Strikethrough"
         >
           <Strikethrough size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('code') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('code') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleCode().run()}
           title="Inline code"
         >
@@ -88,21 +110,21 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className 
         <div className="w-px h-5 bg-gray-200 mx-1" />
 
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('heading', { level: 1 }) && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('heading', { level: 1 }) && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => applyHeading(1)}
           title="Heading 1"
         >
           <TextHOne size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('heading', { level: 2 }) && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('heading', { level: 2 }) && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => applyHeading(2)}
           title="Heading 2"
         >
           <TextHTwo size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('heading', { level: 3 }) && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('heading', { level: 3 }) && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => applyHeading(3)}
           title="Heading 3"
         >
@@ -112,14 +134,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className 
         <div className="w-px h-5 bg-gray-200 mx-1" />
 
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('bulletList') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('bulletList') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
           title="Bulleted list"
         >
           <ListBullets size={16} />
         </button>
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('orderedList') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('orderedList') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
           title="Numbered list"
         >
@@ -129,7 +151,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({ editor, className 
         <div className="w-px h-5 bg-gray-200 mx-1" />
 
         <button
-          className={cn('px-2 py-1 rounded hover:bg-gray-100', editor.isActive('link') && 'bg-brand-primary/10 text-brand-primary')}
+          className={cn('px-2 py-1 rounded hover:bg-gray-100 shrink-0', editor.isActive('link') && 'bg-brand-primary/10 text-brand-primary')}
           onClick={promptForLink}
           title="Link"
         >

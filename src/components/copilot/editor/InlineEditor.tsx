@@ -29,6 +29,8 @@ interface InlineEditorProps {
   autoSaveDelay?: number;
   onEditorReady?: (editor: Editor) => void;
   onReorder?: (content: string) => void;
+  // Bubble up Ask AI selection to parent (e.g., to prefill chat input)
+  onAskAISelection?: (selectedText: string) => void;
 }
 
 /**
@@ -46,7 +48,8 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
   editable = true,
   autoSaveDelay = 2000,
   onEditorReady,
-  onReorder
+  onReorder,
+  onAskAISelection
 }) => {
   // Auto-save integration
   const {
@@ -146,6 +149,8 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         },
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
+        // Ensure placeholders are shown inside nested nodes (e.g., list items, blockquotes)
+        includeChildren: true,
         emptyEditorClass: 'is-editor-empty',
       }),
       // Remove duplicate TextStyle to avoid extension name conflicts
@@ -253,20 +258,19 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
     onSelectionUpdate: ({ editor }) => {
       if (!editable) return;
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
-        setShowFloatingMenu(false);
-        return;
-      }
+      if (!sel || sel.rangeCount === 0) { setShowFloatingMenu(false); return; }
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      // Show only if there is a visible selection rectangle
+      const { to } = editor.state.selection;
       if ((rect?.width || 0) > 0 || (rect?.height || 0) > 0) {
         const x = rect.left + rect.width / 2;
-        const y = rect.top; // top of selection
+        const y = rect.top;
         setFloatingMenuPosition({ x, y });
         setShowFloatingMenu(true);
       } else {
-        setShowFloatingMenu(false);
+        const coords = editor.view.coordsAtPos(to);
+        setFloatingMenuPosition({ x: coords.left, y: coords.top });
+        setShowFloatingMenu(true);
       }
     },
     onCreate: ({ editor }) => {
@@ -306,6 +310,31 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         if (!editable) {
           event.preventDefault();
           return true;
+        }
+
+        // Spacebar-to-AI: when on an empty line, open chat and insert a visual placeholder
+        if (event.key === ' ' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+          try {
+            const { state } = view as any;
+            const { $from } = state.selection;
+            const parent = $from.parent;
+            const isEmpty = !parent || parent.content.size === 0 || (parent.textContent || '').trim() === '';
+            if (isEmpty) {
+              event.preventDefault();
+              // Insert a visible placeholder span the user will later replace with AI output
+              const placeholderText = "Editing with AI...ask the AI to generate an image, diagram, or add other text to this section";
+              // Guard: if there's already our placeholder in this block, don't duplicate
+              const blockEl = (view.domAtPos($from.pos)?.node as HTMLElement) || (view.dom as HTMLElement);
+              const existing = (blockEl && (blockEl.closest('.ProseMirror') as HTMLElement)?.querySelector('[data-ai-placeholder="true"]')) as HTMLElement | null;
+              if (!existing) {
+                editor?.chain().focus().insertContent(`<span class=\"ai-editing-placeholder\" data-ai-placeholder=\"true\">${placeholderText}</span>`).run();
+              }
+              // Focus the chat input textarea
+              const textarea = document.querySelector('.copilot-input-container textarea') as HTMLTextAreaElement | null;
+              textarea?.focus();
+              return true;
+            }
+          } catch {}
         }
         
         // Handle keyboard shortcuts for formatting
@@ -575,7 +604,10 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         setFloatingMenuPosition({ x: rect.left + rect.width / 2, y: rect.top });
         setShowFloatingMenu(true);
       } else {
-        setShowFloatingMenu(false);
+        const { to } = editor.state.selection;
+        const coords = editor.view.coordsAtPos(to);
+        setFloatingMenuPosition({ x: coords.left, y: coords.top });
+        setShowFloatingMenu(true);
       }
     };
     document.addEventListener('mouseup', updateFromDOM);
@@ -687,8 +719,11 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
           isVisible={showFloatingMenu}
           position={floatingMenuPosition}
           onClose={handleCloseFloatingMenu}
+          onAskAISelection={onAskAISelection}
         />
       )}
+
+      {/* Floating Ask AI chip removed to reduce bugs */}
 
       {/* Slash commands menu */}
       {editor && (
@@ -800,13 +835,15 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
           cursor: ${editable ? 'text' : 'default'};
         }
 
-        /* Show placeholder text inside any empty node that TipTap marks with data-placeholder */
-        .inline-editor .ProseMirror [data-placeholder]::before {
+        /* Show placeholder text inside any empty node that TipTap marks */
+        .inline-editor .ProseMirror [data-placeholder]::before,
+        .inline-editor .ProseMirror .is-empty::before {
           content: attr(data-placeholder);
           float: left;
-          color: #9ca3af;
+          color: #9ca3af; /* gray-400 */
           pointer-events: none;
           height: 0;
+          opacity: 1;
         }
         
         /* Line break styling */
@@ -960,6 +997,16 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         .inline-editor .ProseMirror mark {
           padding: 0.1em 0.2em;
           border-radius: 0.2em;
+        }
+
+        /* AI editing placeholder styling */
+        .inline-editor .ProseMirror .ai-editing-placeholder {
+          display: block;
+          background: #f3f4f6; /* gray-100 */
+          color: #374151; /* gray-700 */
+          padding: 8px 10px;
+          border-radius: 8px;
+          font-size: 0.9rem;
         }
       `}</style>
     </div>

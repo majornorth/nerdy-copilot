@@ -48,6 +48,8 @@ interface CopilotStore {
   databaseChatHistory: ChatThread[];
   lessonPlans: Record<string, LessonPlan>;
   lessonPlanSaveStatus: Record<string, 'saved' | 'saving' | 'error'>;
+  // Draft message that pre-fills Copilot input
+  draftMessage: string;
   
   // Actions
   initializeTabs: () => Promise<void>;
@@ -70,6 +72,15 @@ interface CopilotStore {
   loadChatThreadFromDatabase: (threadId: string) => Promise<void>;
   deleteChatFromHistory: (chatId: string) => void;
   deleteDatabaseChatThread: (threadId: string) => Promise<void>;
+  // Draft message actions
+  setDraftMessage: (message: string) => void;
+  clearDraftMessage: () => void;
+  // Prompt context for inline Ask AI on lesson plan detail
+  promptContext: string;
+  promptContextActive: boolean;
+  setPromptContext: (text: string) => void;
+  clearPromptContext: () => void;
+  setPromptContextActive: (active: boolean) => void;
   
   // Lesson Plan Actions
   updateLessonPlan: (planId: string, content: string) => void;
@@ -92,6 +103,9 @@ export const useCopilotStore = create<CopilotStore>((set, get) => ({
   databaseChatHistory: [],
   lessonPlans: {},
   lessonPlanSaveStatus: {},
+  draftMessage: '',
+  promptContext: '',
+  promptContextActive: false,
   
   initializeTabs: async () => {
     const { isInitialized } = get();
@@ -160,6 +174,17 @@ export const useCopilotStore = create<CopilotStore>((set, get) => ({
       });
     }
   },
+
+  // Draft message actions
+  setDraftMessage: (message: string) => {
+    set({ draftMessage: String(message) });
+  },
+  clearDraftMessage: () => set({ draftMessage: '' }),
+
+  // Prompt context actions
+  setPromptContext: (text: string) => set({ promptContext: String(text) }),
+  clearPromptContext: () => set({ promptContext: '' }),
+  setPromptContextActive: (active: boolean) => set({ promptContextActive: !!active }),
   
   addTab: async () => {
     const newTabId = `tab-${Date.now()}`;
@@ -789,7 +814,17 @@ export const useCopilotStore = create<CopilotStore>((set, get) => ({
   loadLessonPlanFromDatabase: async (planId: string) => {
     try {
       console.log('Loading lesson plan from database:', planId);
-      const lessonPlanData = await lessonPlanService.getLessonPlan(planId);
+      let lessonPlanData = await lessonPlanService.getLessonPlan(planId);
+      // Local fallback if Supabase unavailable or not found
+      if (!lessonPlanData) {
+        try {
+          const local = localStorage.getItem(`lessonPlan:${planId}`);
+          if (local) {
+            const parsed = JSON.parse(local);
+            lessonPlanData = parsed;
+          }
+        } catch {}
+      }
       
       if (lessonPlanData) {
         // Convert database format to store format
@@ -829,10 +864,25 @@ export const useCopilotStore = create<CopilotStore>((set, get) => ({
     }
 
     try {
-      // If Supabase isn't available, treat as locally saved
+      // If Supabase isn't available, persist locally as a fallback
       if (!lessonPlanService.isAvailable()) {
-        console.warn('Supabase not configured; skipping DB save and treating as saved locally.');
-        return;
+        try {
+          const local: LessonPlanData = {
+            id: lessonPlan.id,
+            title: lessonPlan.title,
+            content: lessonPlan.content,
+            student: lessonPlan.student,
+            date: lessonPlan.date,
+            lastModified: lessonPlan.lastModified.toISOString(),
+            version: lessonPlan.version
+          };
+          localStorage.setItem(`lessonPlan:${planId}`, JSON.stringify(local));
+          console.warn('Supabase not configured; saved lesson plan to localStorage.');
+          return;
+        } catch (e) {
+          console.error('Failed to persist lesson plan to localStorage:', e);
+          return;
+        }
       }
 
       // Convert store format to database format
@@ -858,6 +908,7 @@ export const useCopilotStore = create<CopilotStore>((set, get) => ({
       // If update failed (plan doesn't exist), create it
       if (!savedPlan) {
         savedPlan = await lessonPlanService.createLessonPlan({
+          id: lessonPlanData.id, // ensure DB row id matches app id
           title: lessonPlanData.title,
           content: lessonPlanData.content,
           student: lessonPlanData.student,

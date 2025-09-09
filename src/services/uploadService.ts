@@ -42,6 +42,19 @@ export async function uploadImageAndGetPublicUrl(file: File): Promise<string | n
   }
 }
 
+export async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 function cryptoRandom(): string {
   try {
     const bytes = new Uint8Array(16);
@@ -51,4 +64,3 @@ function cryptoRandom(): string {
     return Math.random().toString(36).slice(2);
   }
 }
-
