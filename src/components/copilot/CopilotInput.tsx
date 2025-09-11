@@ -10,6 +10,7 @@ import { CopilotLoadingAnimation } from './CopilotLoadingAnimation';
 interface CopilotInputProps {
   onSubmit?: (message: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }
 
 // Input field with placeholder text
@@ -17,12 +18,14 @@ function InputField({
   value, 
   onChange, 
   placeholder,
-  hasMessages
+  hasMessages,
+  disabled
 }: { 
   value: string; 
   onChange: (value: string) => void; 
   placeholder: string;
   hasMessages: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="bg-white relative w-full min-h-[36px]">
@@ -32,9 +35,10 @@ function InputField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={1}
+          disabled={!!disabled}
           className={`w-full font-normal leading-6 not-italic text-base text-left bg-transparent border-none outline-none resize-none overflow-hidden min-h-[27px] ${
             hasMessages ? 'text-gray-900' : 'text-gray-900'
-          } placeholder:text-[#a8a4b3]`}
+          } placeholder:text-[#a8a4b3] ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
           style={{
             height: 'auto',
             minHeight: '27px'
@@ -51,7 +55,7 @@ function InputField({
 }
 
 // Attachment icons group
-function AttachmentIcons({ onAttachFiles }: { onAttachFiles: () => void }) {
+function AttachmentIcons({ onAttachFiles, disabled }: { onAttachFiles: () => void; disabled?: boolean }) {
   return (
     <div className="bg-white relative shrink-0">
       <div className="box-border content-stretch flex flex-row items-center justify-start overflow-clip p-0 relative">
@@ -59,6 +63,7 @@ function AttachmentIcons({ onAttachFiles }: { onAttachFiles: () => void }) {
           onClick={onAttachFiles}
           className="p-1 hover:bg-gray-100 rounded transition-colors"
           title="Attach files"
+          disabled={!!disabled}
         >
           <Paperclip size={20} weight="regular" className="text-[#cdcbd4] hover:text-gray-600" />
         </button>
@@ -68,26 +73,26 @@ function AttachmentIcons({ onAttachFiles }: { onAttachFiles: () => void }) {
 }
 
 // Bottom controls with selectors and icons
-function InputControls({ onAttachFiles }: { onAttachFiles: () => void }) {
+function InputControls({ onAttachFiles, disabled }: { onAttachFiles: () => void; disabled?: boolean }) {
   return (
     <div className="bg-white h-5 relative shrink-0">
       <div className="box-border content-stretch flex flex-row h-5 items-center justify-start overflow-clip p-0 relative">
-        <AttachmentIcons onAttachFiles={onAttachFiles} />
+        <AttachmentIcons onAttachFiles={onAttachFiles} disabled={disabled} />
       </div>
     </div>
   );
 }
 
 // Send button
-function SendButton({ onSubmit, hasMessage }: { onSubmit: () => void; hasMessage: boolean }) {
+function SendButton({ onSubmit, hasMessage, disabled }: { onSubmit: () => void; hasMessage: boolean; disabled?: boolean }) {
   return (
     <div className="h-8 relative shrink-0 w-8">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${hasMessage ? 'bg-brand-primary' : 'bg-[#CDCBD4]'}`}>
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${hasMessage && !disabled ? 'bg-brand-primary' : 'bg-[#CDCBD4]'}`}>
         <ArrowUp size={16} weight="regular" className="text-white" />
       </div>
       <button
         onClick={onSubmit}
-        disabled={!hasMessage}
+        disabled={!hasMessage || !!disabled}
         className="absolute inset-0 cursor-pointer"
       />
     </div>
@@ -95,21 +100,21 @@ function SendButton({ onSubmit, hasMessage }: { onSubmit: () => void; hasMessage
 }
 
 // Bottom row with controls and send button
-function BottomRow({ onSubmit, hasMessage, onAttachFiles }: { onSubmit: () => void; hasMessage: boolean; onAttachFiles: () => void }) {
+function BottomRow({ onSubmit, hasMessage, onAttachFiles, disabled }: { onSubmit: () => void; hasMessage: boolean; onAttachFiles: () => void; disabled?: boolean }) {
   return (
     <div className="bg-white relative shrink-0 w-full">
       <div className="box-border content-stretch flex flex-row items-center justify-between overflow-clip p-0 relative w-full">
-        <InputControls onAttachFiles={onAttachFiles} />
-        <SendButton onSubmit={onSubmit} hasMessage={hasMessage} />
+        <InputControls onAttachFiles={onAttachFiles} disabled={disabled} />
+        <SendButton onSubmit={onSubmit} hasMessage={hasMessage} disabled={disabled} />
       </div>
     </div>
   );
 }
 
 // Main chat input component
-export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholder: placeholderProp }) => {
+export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholder: placeholderProp, disabled }) => {
   const [message, setMessage] = useState('');
-  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory, draftMessage, clearDraftMessage, promptContext, promptContextActive, clearPromptContext, setPromptContextActive, isLoading } = useCopilotStore();
+  const { activeTabId, tabs, addMessage, addPendingMessage, updateMessageStatus, setLoading, addToChatHistory, draftMessage, clearDraftMessage, promptContext, promptContextActive, clearPromptContext, setPromptContextActive } = useCopilotStore();
   const { updateMessageWithImage } = useCopilotStore();
   
   // Get current tab to check if it has messages
@@ -260,7 +265,7 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
       
       {/* Input container */}
       <div className="absolute border-[#e3e2e7] border-[0.998944px] border-solid inset-0 pointer-events-none rounded-lg" />
-      <div className="relative size-full">
+      <div className={`relative size-full ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>
         <div 
           className="box-border content-stretch flex flex-col items-start justify-start px-4 py-3 gap-2 relative w-full"
           onKeyPress={handleKeyPress}
@@ -291,17 +296,13 @@ export const CopilotInput: React.FC<CopilotInputProps> = ({ onSubmit, placeholde
             onChange={setMessage}
             placeholder={placeholder}
             hasMessages={!!hasMessages}
+            disabled={disabled}
           />
-          {isLoading && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <CopilotLoadingAnimation size="sm" />
-              <span>Processing…</span>
-            </div>
-          )}
           <BottomRow 
             onSubmit={handleSubmit}
             hasMessage={message.trim().length > 0}
             onAttachFiles={openFileDialog}
+            disabled={disabled}
           />
         </div>
       </div>

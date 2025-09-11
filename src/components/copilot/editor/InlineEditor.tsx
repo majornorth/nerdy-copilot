@@ -288,7 +288,8 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       },
       handleClick: (view, pos, event) => {
         if (!editable) {
-          return true; // Prevent click handling when not editable
+          // Allow native selection / dragging in read-only mode
+          return false;
         }
         
         // Ensure the editor is focused
@@ -308,8 +309,8 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       },
       handleKeyDown: (view, event) => {
         if (!editable) {
-          event.preventDefault();
-          return true;
+          // Do not block keyboard selection/navigation in read-only mode
+          return false;
         }
 
         // Spacebar-to-AI: when on an empty line, open chat and insert a visual placeholder
@@ -436,6 +437,76 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
 
   // Helper to initialize draggable behavior for reordering top-level blocks
   function initializeDraggableBlocks(root: HTMLElement, ed: any) {
+    const planContainer = root.closest('[data-lesson-plan-id]') as HTMLElement | null;
+    const lessonPlanId = planContainer?.getAttribute('data-lesson-plan-id') || undefined;
+    const getLatexFromBlock = (el: HTMLElement | null): string | undefined => {
+      if (!el) return undefined;
+      const direct = el.getAttribute('data-latex');
+      if (direct) return direct;
+      const inner = el.querySelector('.tiptap-mathematics-render') as HTMLElement | null;
+      const latex = inner?.getAttribute('data-latex') || undefined;
+      return latex;
+    };
+    // Make nearest block under pointer draggable just-in-time to ensure native drag starts
+    const ensureDraggable = (target: HTMLElement | null) => {
+      if (!target) return null;
+      const block = target.closest(
+        'p, h1, h2, h3, ul > li, ol > li, blockquote, pre, img, figure'
+      ) as HTMLElement | null;
+      if (!block) return null;
+      if (!block.getAttribute('draggable')) {
+        block.setAttribute('draggable', 'true');
+        block.classList.add('draggable-block');
+      }
+      return block;
+    };
+
+    // JIT set draggable on pointerdown before drag begins
+    const onPointerDown = (e: Event) => {
+      ensureDraggable(e.target as HTMLElement);
+    };
+    root.addEventListener('pointerdown', onPointerDown, { passive: true });
+
+    // Attach a capturing dragstart to set payloads robustly (only once)
+    const rAny = root as any;
+    if (!rAny.__vtDragStartBound) {
+      const onRootDragStart = (e: DragEvent) => {
+        try {
+          const target = e.target as HTMLElement | null;
+          if (!target || !e.dataTransfer) return;
+          const block = target.closest('p, h1, h2, h3, ul > li, ol > li, blockquote, pre, img, figure, [data-type="block-math"]') as HTMLElement | null;
+          if (!block) return;
+          // If no standard payloads yet, set them now
+          const img = block.tagName.toLowerCase() === 'img' ? (block as HTMLImageElement) : (block.querySelector('img') as HTMLImageElement | null);
+          const text = (block.innerText || '').trim();
+          if (!e.dataTransfer.getData('text/uri-list') && img?.src) {
+            e.dataTransfer.setData('text/uri-list', img.src);
+            e.dataTransfer.setData('text/plain', img.src);
+          }
+          if (!e.dataTransfer.getData('text/plain') && text) {
+            e.dataTransfer.setData('text/plain', text);
+          }
+          if (!e.dataTransfer.getData('text/html')) {
+            const outer = block.outerHTML || '';
+            if (outer) e.dataTransfer.setData('text/html', outer);
+          }
+          // Custom payload
+          const payload = {
+            source: 'lesson',
+            lessonItemId: lessonPlanId,
+            elementType: (block.getAttribute('data-type') || block.tagName || '').toLowerCase(),
+            text: text.slice(0, 5000),
+            imageUrl: img?.src || undefined,
+            latex: block.matches('[data-type="block-math"]') ? getLatexFromBlock(block) : undefined,
+          };
+          e.dataTransfer.setData('application/x-vt-lesson', JSON.stringify(payload));
+          e.dataTransfer.effectAllowed = 'copy';
+        } catch {}
+      };
+      root.addEventListener('dragstart', onRootDragStart, true);
+      rAny.__vtDragStartBound = true;
+    }
+
     // Top-level block nodes
     Array.from(root.children).forEach((el) => {
       const block = el as HTMLElement;
@@ -445,6 +516,33 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       block.setAttribute('draggable', 'true');
 
       block.style.position = block.style.position || 'relative';
+
+      // Add hover "Add to board" button for accessibility (read-only only)
+      if (!editable && !block.querySelector('.vt-add-to-board')) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vt-add-to-board';
+        btn.setAttribute('aria-label', 'Add to board');
+        btn.title = 'Add to board';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+        btn.addEventListener('click', async (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          try {
+            const img = block.querySelector('img') as HTMLImageElement | null;
+            if (img?.src) {
+              const mod = await import('../../../services/whiteboardBridge');
+              await mod.addToBoard({ type: 'url', url: img.src, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: (block.tagName || '').toLowerCase() } });
+            } else {
+              const text = (block.innerText || '').trim();
+              if (text) {
+                const mod = await import('../../../services/whiteboardBridge');
+                await mod.addToBoard({ type: 'text', text, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: (block.tagName || '').toLowerCase() } });
+              }
+            }
+          } catch (e) { console.warn('Add to board failed', e); }
+        });
+        block.appendChild(btn);
+      }
 
       function setDragRange(e: DragEvent) {
         const state = ed.view.state;
@@ -465,7 +563,34 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       }
 
       block.addEventListener('dragstart', (e: DragEvent) => {
-        try { setDragRange(e); } catch {}
+        try {
+          setDragRange(e);
+          // Also expose generic payloads for external drop targets (e.g., tldraw canvas)
+          const img = block.querySelector('img') as HTMLImageElement | null;
+          if (img?.src) {
+            e.dataTransfer?.setData('text/uri-list', img.src);
+            e.dataTransfer?.setData('text/plain', img.src);
+          } else {
+            const text = (block.innerText || '').trim();
+            if (text) {
+              e.dataTransfer?.setData('text/plain', text);
+            }
+            // Provide minimal HTML for richer targets; keep it small to avoid issues
+            const outer = block.outerHTML || '';
+            if (outer) {
+              e.dataTransfer?.setData('text/html', outer);
+            }
+          }
+          // Custom payload for richer mapping on drop
+          const payload = {
+            source: 'lesson',
+            lessonItemId: lessonPlanId,
+            elementType: (block.tagName || '').toLowerCase(),
+            text: (block.innerText || '').trim().slice(0, 5000),
+            imageUrl: (block.querySelector('img') as HTMLImageElement | null)?.src || undefined,
+          };
+          e.dataTransfer?.setData('application/x-vt-lesson', JSON.stringify(payload));
+        } catch {}
       });
 
       block.addEventListener('dragend', () => {
@@ -537,6 +662,32 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       li.setAttribute('draggable', 'true');
       li.style.position = li.style.position || 'relative';
 
+      if (!editable && !li.querySelector('.vt-add-to-board')) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vt-add-to-board';
+        btn.setAttribute('aria-label', 'Add to board');
+        btn.title = 'Add to board';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+        btn.addEventListener('click', async (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          try {
+            const img = li.querySelector('img') as HTMLImageElement | null;
+            if (img?.src) {
+              const mod = await import('../../../services/whiteboardBridge');
+              await mod.addToBoard({ type: 'url', url: img.src, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'li' } });
+            } else {
+              const text = (li.innerText || '').trim();
+              if (text) {
+                const mod = await import('../../../services/whiteboardBridge');
+                await mod.addToBoard({ type: 'text', text, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'li' } });
+              }
+            }
+          } catch (e) { console.warn('Add to board failed', e); }
+        });
+        li.appendChild(btn);
+      }
+
       const setDragRange = (e: DragEvent) => {
         const state = ed.view.state;
         const fromPos = ed.view.posAtDOM(li, 0);
@@ -553,7 +704,34 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         li.classList.add('dragging');
       };
 
-      li.addEventListener('dragstart', (e: DragEvent) => { try { setDragRange(e); } catch {} });
+      li.addEventListener('dragstart', (e: DragEvent) => {
+        try {
+          setDragRange(e);
+          // External payloads
+          const img = li.querySelector('img') as HTMLImageElement | null;
+          if (img?.src) {
+            e.dataTransfer?.setData('text/uri-list', img.src);
+            e.dataTransfer?.setData('text/plain', img.src);
+          } else {
+            const text = (li.innerText || '').trim();
+            if (text) {
+              e.dataTransfer?.setData('text/plain', text);
+            }
+            const outer = li.outerHTML || '';
+            if (outer) {
+              e.dataTransfer?.setData('text/html', outer);
+            }
+          }
+          const payload = {
+            source: 'lesson',
+            lessonItemId: lessonPlanId,
+            elementType: 'li',
+            text: (li.innerText || '').trim().slice(0, 5000),
+            imageUrl: (li.querySelector('img') as HTMLImageElement | null)?.src || undefined,
+          };
+          e.dataTransfer?.setData('application/x-vt-lesson', JSON.stringify(payload));
+        } catch {}
+      });
       li.addEventListener('dragend', () => { li.classList.remove('dragging','drop-before','drop-after'); });
       li.addEventListener('dragover', (e: DragEvent) => {
         e.preventDefault(); const rect = li.getBoundingClientRect();
@@ -590,6 +768,75 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       const bm = el as HTMLElement;
       bm.setAttribute('draggable', 'true');
       bm.classList.add('draggable-node');
+      if (!editable && !bm.querySelector('.vt-add-to-board')) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vt-add-to-board';
+        btn.setAttribute('aria-label', 'Add to board');
+        btn.title = 'Add to board';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+        btn.addEventListener('click', async (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          try {
+            const latex = getLatexFromBlock(bm) || (bm.innerText || '').trim();
+            const mod = await import('../../../services/whiteboardBridge');
+            await mod.addToBoard({ type: 'math', latex, display: true, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'math-block' } });
+          } catch (e) { console.warn('Add to board failed', e); }
+        });
+        bm.appendChild(btn);
+      }
+      bm.addEventListener('dragstart', (e: DragEvent) => {
+        try {
+          const text = (bm.innerText || '').trim();
+          if (text) e.dataTransfer?.setData('text/plain', text);
+          const html = bm.outerHTML || '';
+          if (html) e.dataTransfer?.setData('text/html', html);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
+          const payload = {
+            source: 'lesson',
+            lessonItemId: lessonPlanId,
+            elementType: 'math-block',
+            text: (bm.innerText || '').trim().slice(0, 5000),
+            latex: getLatexFromBlock(bm) || undefined,
+          };
+          e.dataTransfer?.setData('application/x-vt-lesson', JSON.stringify(payload));
+        } catch {}
+      });
+    });
+
+    // Add explicit "+" button on images (even if nested)
+    root.querySelectorAll('img').forEach((imgEl) => {
+      const img = imgEl as HTMLImageElement;
+      const parent = (img.closest('figure') as HTMLElement) || (img.parentElement as HTMLElement | null);
+      if (!parent) return;
+      parent.style.position = parent.style.position || 'relative';
+      parent.classList.add('draggable-block');
+      if (!editable && !parent.querySelector('.vt-add-to-board.vt-under-image')) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vt-add-to-board vt-under-image';
+        btn.setAttribute('aria-label', 'Add image to board');
+        btn.title = 'Add to board';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+        btn.addEventListener('click', async (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          try {
+            const url = img.src;
+            if (url) {
+              const mod = await import('../../../services/whiteboardBridge');
+              await mod.addToBoard({ type: 'url', url, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'img' } });
+            }
+          } catch (e) { console.warn('Add image to board failed', e); }
+        });
+        // Place directly under the image
+        if (img.nextSibling) parent.insertBefore(btn, img.nextSibling);
+        else parent.appendChild(btn);
+      }
+    });
+
+    // Hint to drop targets that copy is preferred
+    root.addEventListener('dragstart', (e: DragEvent) => {
+      try { if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'; } catch {}
     });
   }
 
@@ -744,6 +991,20 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
           box-shadow: none;
           background: transparent;
           white-space: pre-wrap;
+        }
+
+        /* Ensure selection is allowed in read-only mode */
+        .inline-editor .ProseMirror[contenteditable="false"] {
+          -webkit-user-select: text;
+          -moz-user-select: text;
+          -ms-user-select: text;
+          user-select: text;
+        }
+        .inline-editor .ProseMirror[contenteditable="false"] * {
+          -webkit-user-select: text !important;
+          -moz-user-select: text !important;
+          -ms-user-select: text !important;
+          user-select: text !important;
         }
         
         .inline-editor .ProseMirror {
@@ -972,6 +1233,37 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         }
         .inline-editor .ProseMirror > .draggable-block:hover {
           background: rgba(74, 75, 182, 0.02);
+        }
+        /* Add-to-board button */
+        .inline-editor .ProseMirror .vt-add-to-board {
+          position: absolute;
+          right: 6px;
+          top: 6px;
+          width: 22px;
+          height: 22px;
+          border-radius: 9999px;
+          background: white;
+          color: #4A4BB6;
+          border: 1px solid #E5E7EB; /* gray-200 */
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+          opacity: 0;
+          transition: opacity .12s ease, transform .12s ease;
+          z-index: 100;
+        }
+        .inline-editor .ProseMirror .draggable-block:hover > .vt-add-to-board,
+        .inline-editor .ProseMirror .vt-add-to-board:focus {
+          opacity: 1;
+        }
+        .inline-editor .ProseMirror .vt-add-to-board:hover { transform: scale(1.05); }
+        /* Position tweak when on images */
+        .inline-editor .ProseMirror .vt-add-to-board.vt-under-image {
+          position: static !important;
+          right: auto; top: auto;
+          margin-top: 6px;
+          opacity: 1; /* always visible below image */
         }
         /* Hide drag handle UI entirely */
         .inline-editor .ProseMirror > .draggable-block .drag-handle { display: none !important; }

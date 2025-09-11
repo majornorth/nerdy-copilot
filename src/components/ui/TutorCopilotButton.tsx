@@ -8,7 +8,7 @@ interface TutorCopilotButtonProps {
 }
 
 export const TutorCopilotButton: React.FC<TutorCopilotButtonProps> = ({ 
-  children = "Tutor Copilot", 
+  children = "Session prep", 
   onClick, 
   className = "" 
 }) => {

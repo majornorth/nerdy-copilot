@@ -11,6 +11,7 @@ import { CopilotDialog } from './components/copilot/CopilotDialog';
 import { useCopilot } from './hooks/useCopilot';
 import { useResizable } from './hooks/useResizable';
 import { useCopilotStore } from './stores/copilotStore';
+import LiveLearningSpace from './components/live/LiveLearningSpace';
 
 function App() {
   const { 
@@ -29,13 +30,28 @@ function App() {
   
   // Initialize tabs from database on app startup
   const { initializeTabs } = useCopilotStore();
+  const { setView } = useCopilotStore();
+  const { setSelectedLessonPlan } = useCopilotStore();
   
   useEffect(() => {
     initializeTabs();
   }, [initializeTabs]);
   
+  // Auto-open Copilot and default to Geometry Fundamentals lesson plan on /live
+  useEffect(() => {
+    if (window.location.pathname === '/live') {
+      if (!isPoppedOut) {
+        openCopilot();
+      }
+      try { setSelectedLessonPlan('lp-1'); } catch {}
+      setView('lesson-plan-detail');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
   // Toggle to show icon showcase - set to false for normal app view
   const showIconShowcase = false;
+  const showAITools = false; // Hide AI Tools UI
 
   // Handle pop in - show side panel and close dialog
   const handlePopIn = () => {
@@ -70,26 +86,34 @@ function App() {
           onCopilotClick={openCopilot}
         />
         
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {showIconShowcase ? (
-              <IconShowcase />
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Main content - Upcoming lessons */}
-                <div className="lg:col-span-2">
-                  <UpcomingLessons />
-                </div>
-                
-                {/* Sidebar */}
-                <div className="space-y-8">
-                  <AITools />
-                  <AvailabilitySchedule />
-                  <TutorResources />
-                </div>
+        <main className="flex-1 overflow-hidden">
+          {window.location.pathname === '/live' ? (
+            <div className="h-full">
+              <LiveLearningSpace />
+            </div>
+          ) : (
+            <div className="overflow-y-auto">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {showIconShowcase ? (
+                  <IconShowcase />
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Main content - Upcoming lessons */}
+                    <div className="lg:col-span-2">
+                      <UpcomingLessons />
+                    </div>
+                    
+                    {/* Sidebar */}
+                    <div className="space-y-8">
+                      {showAITools && <AITools />}
+                      <AvailabilitySchedule />
+                      <TutorResources />
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </main>
       </div>
       

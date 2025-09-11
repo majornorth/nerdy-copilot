@@ -71,6 +71,15 @@ export const LessonCard: React.FC<LessonCardProps> = ({ lesson }) => {
             leftIcon={VideoCamera} 
             iconWeight="regular"
             disabled={!lesson.buttonsEnabled}
+            onClick={() => {
+              if (!lesson.buttonsEnabled) return;
+              try {
+                window.location.assign('/live');
+              } catch {
+                // fallback
+                window.location.href = '/live';
+              }
+            }}
           >
             Join now
           </Button>

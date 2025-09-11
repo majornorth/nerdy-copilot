@@ -13,7 +13,7 @@ export const mockLessons: Lesson[] = [
     student: {
       name: 'Gabe Watson'
     },
-    subject: 'LSAT',
+    subject: 'Geometry',
     type: 'Online Lesson',
     recurring: 'Recurs every week',
     status: 'upcoming',

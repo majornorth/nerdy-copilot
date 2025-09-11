@@ -30,7 +30,7 @@ export const mockSessionBriefs: SessionBrief[] = [
     description: 'Comprehensive review of basic geometric principles and problem-solving strategies',
     student: 'Gabe Watson',
     date: 'May 22, 2025',
-    goal: 'Review fundamental geometry concepts and prepare for upcoming LSAT logical reasoning sections',
+    goal: 'Review fundamental geometry concepts',
     todaysFocus: 'Basic geometric shapes, angle relationships, and spatial reasoning',
     strengthsIdentified: 'Strong analytical thinking and pattern recognition abilities',
     lessonPlan: 'Structured 60-minute session covering points, lines, angles, and basic polygons',
