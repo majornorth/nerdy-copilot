@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Download, Share, Image, Bold, Italic, List, ListNumbers, TextH, TextHOne } from '../../ui/Icon';
+import { ArrowLeft, Download, Share } from '../../ui/Icon';
 import { mockLessonPlans } from '../../../data/mockSessionBriefs';
 import { useCopilotStore } from '../../../stores/copilotStore';
 import { CopilotInput } from '../CopilotInput';
 import { openaiService } from '../../../services/openaiService';
 import { InlineEditor } from '../editor/InlineEditor';
+import { PracticeProblemsRenderer } from './PracticeProblemsRenderer';
 import { EditorToolbar } from '../editor/EditorToolbar';
 import { useAutoSave } from '../../../hooks/useAutoSave';
 import { CopilotLoadingAnimation } from '../../copilot/CopilotLoadingAnimation';
@@ -29,6 +30,7 @@ export const LessonPlanDetail: React.FC = () => {
     lessonPlans,
     loadLessonPlanFromDatabase
   } = useCopilotStore();
+  const contentRef = useRef<HTMLDivElement>(null);
   const [lessonContent, setLessonContent] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const [editorInstance, setEditorInstance] = useState<any>(null);
@@ -131,6 +133,23 @@ export const LessonPlanDetail: React.FC = () => {
     );
   }
 
+  function countPracticeProblemBlocks(html: string): number {
+    try {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html || '';
+      const heading = findHeadingByText(tmp as any, /practice\s*problems/i);
+      if (!heading) return 0;
+      let n: Element | null = heading.nextElementSibling;
+      while (n && (n as HTMLElement).dataset?.problemList !== 'true' && !/^H[1-6]$/.test(n.tagName)) {
+        n = n.nextElementSibling;
+      }
+      if (!n || (n as HTMLElement).dataset?.problemList !== 'true') return 0;
+      return n.querySelectorAll(':scope > [data-problem-item]').length;
+    } catch {
+      return 0;
+    }
+  }
+
   const handleBackClick = () => {
     setView('session-briefs');
   };
@@ -197,12 +216,39 @@ export const LessonPlanDetail: React.FC = () => {
       // trim/pad to exactly N, and remove any old artifacts.
       const normalizedHtml = normalizePracticeProblemsSection(mergedHtml, userPrompt);
 
+      // As a final guard, strictly enforce the requested count again
+      const countedHtml = enforcePracticeProblemCount(normalizedHtml, userPrompt);
+
       // Generate and inject solution boxes for each problem
-      const finalHtml = await addSolutionsToPracticeProblems(normalizedHtml);
+      // NOTE: Solutions are now expected inline from the model; this pass standardizes
+      // any solution content into our collapsible card format.
+      const finalHtml = await addSolutionsToPracticeProblems(countedHtml);
+
+      // Guard: capture and count problem blocks before setting content
+      const expectedMatch = userPrompt.match(/(\d+)\s+(practice\s+problems|questions)/i);
+      const expectedCount = expectedMatch ? parseInt(expectedMatch[1], 10) : 8;
+      const beforeSetCount = countPracticeProblemBlocks(finalHtml);
+      console.log('[PracticeProblems Guard] before setContent count=', beforeSetCount, 'expected=', expectedCount);
 
       // Apply full-document replacement while allowing undo via pendingChange banner
       editor.commands.setContent(finalHtml, false);
       const afterHTML = editor.getHTML();
+
+      // Guard: count after setContent
+      const afterSetCount = countPracticeProblemBlocks(afterHTML);
+      console.log('[PracticeProblems Guard] after setContent count=', afterSetCount, 'expected=', expectedCount);
+
+      // If TipTap dropped items unexpectedly, re-enforce and set once more
+      if (afterSetCount < expectedCount || afterSetCount < beforeSetCount) {
+        try {
+          const repaired = enforcePracticeProblemCount(afterHTML, `${expectedCount} practice problems`);
+          const repairedCount = countPracticeProblemBlocks(repaired);
+          console.warn('[PracticeProblems Guard] repairing content. repairedCount=', repairedCount);
+          editor.commands.setContent(repaired, false);
+        } catch (e) {
+          console.warn('[PracticeProblems Guard] repair attempt failed', e);
+        }
+      }
       setPendingChange({ beforeHTML, afterHTML, description: 'Updated lesson plan based on your request.' });
 
       // Clear any selection-context preview
@@ -306,7 +352,7 @@ export const LessonPlanDetail: React.FC = () => {
   // a clean list of problem blocks (no numbering), and enforce exactly-N.
   function normalizePracticeProblemsSection(html: string, prompt: string): string {
     const requiredMatch = prompt.match(/(\d+)\s+(practice\s+problems|questions)/i);
-    const required = requiredMatch ? parseInt(requiredMatch[1], 10) : NaN;
+    const required = requiredMatch ? parseInt(requiredMatch[1], 10) : 8; // Default to 8 if not specified
     try {
       const container = document.createElement('div');
       container.innerHTML = html;
@@ -316,13 +362,10 @@ export const LessonPlanDetail: React.FC = () => {
       // Collect candidate problem texts from existing structures
       const collected: string[] = [];
       let n: Element | null = heading.nextElementSibling;
+      const candidateLists: Array<HTMLOListElement | HTMLUListElement> = [];
       while (n && !(/^H[1-6]$/.test(n.tagName))) {
         if (n.tagName === 'OL' || n.tagName === 'UL') {
-          const lis = Array.from(n.querySelectorAll(':scope > li')) as HTMLLIElement[];
-          lis.forEach(li => {
-            const text = (li.textContent || '').replace(/^\s*\d+\.?\s+/, '').trim();
-            if (text) collected.push(text);
-          });
+          candidateLists.push(n as any);
         } else if ((n as HTMLElement).dataset?.problemList === 'true') {
           const blocks = Array.from(n.querySelectorAll(':scope > [data-problem-item]')) as HTMLElement[];
           blocks.forEach(b => {
@@ -334,6 +377,49 @@ export const LessonPlanDetail: React.FC = () => {
         n = n.nextElementSibling;
       }
 
+      // If there are lists, choose the one that most likely contains questions (not solution steps)
+      if (candidateLists.length > 0 && collected.length === 0) {
+        const score = (list: HTMLOListElement | HTMLUListElement) => {
+          const lis = Array.from(list.querySelectorAll(':scope > li')) as HTMLLIElement[];
+          // Score for question-like items and penalize solution/answer labels
+          return lis.reduce((acc, li) => {
+            const t = (li.textContent || '').trim();
+            if (/^(solution|answer)\s*:/i.test(t)) return acc - 2; // penalize
+            if (/\?\s*$/.test(t)) return acc + 2; // strong signal of a question
+            if (/\?$/.test(t.replace(/\s+/g, ' '))) return acc + 1; // weak signal
+            return acc;
+          }, 0);
+        };
+
+        const best = candidateLists
+          .map(l => ({ l, s: score(l) }))
+          .sort((a, b) => b.s - a.s)[0];
+
+        const chosen = best && best.s > 0 ? (best.l as HTMLOListElement | HTMLUListElement) : null;
+        if (chosen) {
+          const lis = Array.from(chosen.querySelectorAll(':scope > li')) as HTMLLIElement[];
+          lis.forEach(li => {
+            const raw = (li.textContent || '').replace(/^\s*\d+\.?\s+/, '').trim();
+            const text = raw.replace(/^(solution|answer)\s*:\s*/i, '').trim();
+            if (text) collected.push(text);
+          });
+        }
+      }
+
+      // Fallback: gather paragraphs that look like problems (end with '?')
+      if (collected.length === 0) {
+        let p: Element | null = heading.nextElementSibling;
+        while (p && !(/^H[1-6]$/.test(p.tagName))) {
+          if (p.tagName === 'P') {
+            const text = (p.textContent || '').trim();
+            if (text && /\?\s*$/.test(text) && !/^(solution|answer)\s*:/i.test(text)) {
+              collected.push(text);
+            }
+          }
+          p = p.nextElementSibling;
+        }
+      }
+
       // Remove everything after heading up to (but not including) the next section heading
       let cur = heading.nextSibling as ChildNode | null;
       while (cur && !(cur.nodeType === 1 && /^H[1-6]$/.test((cur as Element).nodeName))) {
@@ -343,10 +429,31 @@ export const LessonPlanDetail: React.FC = () => {
       }
 
       // Enforce count and build new structure
-      let problems = collected;
+      // If the model didn't produce enough question-like items, try to extract questions
+      // from any mixed content by looking for lines ending with '?'.
+      let problems = collected.length > 0 ? collected : collected;
       const isObjective = (t: string) => /^(apply|recognize|identify|understand|explore|work with|review|practice)\b/i.test(t) && !/[?]$/.test(t);
       const isPlaceholder = (t: string) => /^(problem\s*\d+\s*:?)$/i.test(t.trim()) || t.trim().length < 12;
       problems = problems.filter(t => t && !isObjective(t) && !isPlaceholder(t));
+      // De-duplicate problems by normalized text
+      const seen = new Set<string>();
+      problems = problems.filter(t => {
+        const key = t.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      // As a safety net, if still empty, scan between headings for paragraphs ending with '?'
+      if (problems.length === 0) {
+        let scan: Element | null = heading.nextElementSibling;
+        while (scan && !(/^H[1-6]$/.test(scan.tagName))) {
+          if (scan.tagName === 'P') {
+            const tt = (scan.textContent || '').trim();
+            if (/\?\s*$/.test(tt) && !/^(solution|answer)\s*:/i.test(tt)) problems.push(tt);
+          }
+          scan = scan.nextElementSibling;
+        }
+      }
       if (required && required > 0) {
         if (problems.length > required) problems = problems.slice(0, required);
         if (problems.length < required) {
@@ -357,6 +464,10 @@ export const LessonPlanDetail: React.FC = () => {
 
       const wrap = document.createElement('div');
       wrap.setAttribute('data-problem-list', 'true');
+      // Store requested target count for the renderer to respect
+      if (required && required > 0) {
+        wrap.setAttribute('data-problem-target-count', String(required));
+      }
       problems.forEach(text => {
         const div = document.createElement('div');
         div.setAttribute('data-problem-item', 'true');
@@ -551,7 +662,17 @@ export const LessonPlanDetail: React.FC = () => {
           card.appendChild(ansP);
         }
 
-        // Append card after the problem text inside the same problem block
+        // Make solution box collapsed by default and add toggle control compatible with our click handler
+        card.setAttribute('data-solution-body', 'true');
+        (card.style as any).display = 'none';
+        const toggleLink = document.createElement('a');
+        toggleLink.href = '#';
+        toggleLink.setAttribute('data-solution-toggle', 'true');
+        toggleLink.className = 'text-[#6B46C1] text-sm font-medium hover:underline';
+        toggleLink.textContent = 'See solution';
+
+        // Append toggle and card after the problem text inside the same problem block
+        div.appendChild(toggleLink);
         div.appendChild(card);
       });
 
@@ -765,17 +886,20 @@ export const LessonPlanDetail: React.FC = () => {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl mx-auto" data-lesson-plan-id={selectedLessonPlanId || ''}>
-          <InlineEditor
-            content={lessonContent}
-            onChange={handleContentChange}
-            onContentChange={handleContentChangeWithSave}
-            editable={isEditing}
-            placeholder="Write, press 'space' for AI, '/' for commands..."
-            className="w-full"
-            onEditorReady={(ed) => setEditorInstance(ed)}
-            onReorder={() => { if (isEditing && editorInstance) { try { triggerSave(JSON.stringify(editorInstance.getJSON())); } catch { /* fallback ignored */ } } }}
-            onAskAISelection={handleAskAIFromSelection}
-          />
+          <div ref={contentRef}>
+            <InlineEditor
+              content={lessonContent}
+              onChange={handleContentChange}
+              onContentChange={handleContentChangeWithSave}
+              editable={isEditing}
+              placeholder="Write, press 'space' for AI, '/' for commands..."
+              className="w-full"
+              onEditorReady={(ed) => setEditorInstance(ed)}
+              onReorder={() => { if (isEditing && editorInstance) { try { triggerSave(JSON.stringify(editorInstance.getJSON())); } catch { /* fallback ignored */ } } }}
+              onAskAISelection={handleAskAIFromSelection}
+            />
+          </div>
+          <PracticeProblemsRenderer containerRef={contentRef} isEditing={isEditing} />
         </div>
       </div>
 

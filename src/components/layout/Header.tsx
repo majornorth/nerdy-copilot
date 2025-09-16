@@ -12,7 +12,7 @@ export const Header: React.FC<HeaderProps> = ({
   showCopilotButton = true,
   onCopilotClick 
 }) => {
-  const isLiveRoute = typeof window !== 'undefined' && window.location.pathname === '/live';
+  const isLiveRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/live');
   return (
     <header className="bg-white border-b border-gray-200 flex-shrink-0">
       <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
@@ -50,18 +50,22 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right side - Messages and Profile */}
           <div className="flex items-center space-x-4 flex-shrink-0">
-            <button className="p-2 text-gray-400 hover:text-brand-primary transition-colors rounded-lg hover:bg-brand-primary-50">
-              <Chat size={20} weight="regular" />
-            </button>
+            {!isLiveRoute && (
+              <>
+                <button className="p-2 text-gray-400 hover:text-brand-primary transition-colors rounded-lg hover:bg-brand-primary-50">
+                  <Chat size={20} weight="regular" />
+                </button>
+
+                <div className="flex items-center space-x-2 cursor-pointer hover:bg-brand-primary-50 rounded-lg px-2 py-1 transition-colors">
+                  <span className="text-sm font-medium text-gray-900">{mockUser.name}</span>
+                  <CaretDown size={20} weight="regular" className="text-gray-400" />
+                </div>
+              </>
+            )}
 
             {showCopilotButton && (
               <TutorCopilotButton onClick={onCopilotClick} />
             )}
-            
-            <div className="flex items-center space-x-2 cursor-pointer hover:bg-brand-primary-50 rounded-lg px-2 py-1 transition-colors">
-              <span className="text-sm font-medium text-gray-900">{mockUser.name}</span>
-              <CaretDown size={20} weight="regular" className="text-gray-400" />
-            </div>
           </div>
         </div>
       </div>

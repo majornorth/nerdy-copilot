@@ -115,7 +115,8 @@ export const SessionBriefDetail: React.FC = () => {
             <CaretRight size={20} weight="regular" className="text-gray-400" />
           </button>
           
-          <button className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary">
+          <button 
+            className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-brand-primary opacity-50 cursor-not-allowed">
             <span className="font-semibold text-gray-900 text-base">Practice problems</span>
             <CaretRight size={20} weight="regular" className="text-gray-400" />
           </button>

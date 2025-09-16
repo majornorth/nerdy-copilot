@@ -301,7 +301,7 @@ Would you like me to modify the code or create a different type of visualization
 
       return {
         message: mathResponse,
-        imageUrl: mathImageUrl
+        imageUrl: mathImageUrl || undefined
       };
     }
     
@@ -388,9 +388,10 @@ Would you like me to modify the code or create a different type of visualization
         'Apply the user request to the provided lesson plan using minimal edits.',
         'Unless the user explicitly asks to change a section, preserve ALL existing sections and their content (e.g., Notes) verbatim.',
         'When the request is about practice problems/questions, update only the Practice Problems section and do not remove or truncate any other section.',
-        'For practice problems: DO NOT use <ol> or <ul>. Output each problem as its own paragraph or line (no numbering characters), exactly matching the number requested (or 8 if unspecified).',
+        'For practice problems: DO NOT use <ol> or <ul> for the problems themselves. Output each problem as its own paragraph or line (no numbering characters), exactly matching the number requested by the user.',
+        'Immediately after each problem paragraph, include a solution block using only plain HTML elements in this order: a paragraph with "Solution:", an ordered list (<ol>) of 2–5 short steps, and a final paragraph starting with "Answer:". Do NOT wrap with custom attributes; we will transform it.',
         'Each problem must be a complete, solvable statement (one or two sentences). Do NOT output generic learning objectives, and avoid placeholders like "Problem X:".',
-        'Do not include solutions or answer explanations unless the user explicitly requests them.',
+        'If the user does not specify a number of practice problems, generate 8 problems with solutions by default; if the user asks for N, generate exactly N problems with solutions.',
         'Return only the FULL UPDATED LESSON PLAN as clean HTML suitable for a rich text editor (TipTap).',
         'Do not include code fences, backticks, markdown, or commentary—only the updated HTML.'
       ].join('\n')
@@ -400,51 +401,17 @@ Would you like me to modify the code or create a different type of visualization
       content: `Current lesson plan (HTML):\n\n${lessonPlanHtml}\n\nUser request: ${userRequest}\n\nPlease return only the full updated lesson plan in HTML.`
     };
     const result = await this.sendCustomChat([systemPrompt, userPrompt]);
+    // System log: capture raw LLM result for debugging (truncated for safety)
+    try {
+      const msg = (result.message || '').toString();
+      const preview = msg.slice(0, 1000);
+      console.log('[OpenAI:updateLessonPlanWithContext] LLM response length:', msg.length);
+      console.log('[OpenAI:updateLessonPlanWithContext] LLM response preview (first 1000 chars):', preview);
+    } catch {}
     return (result.message || '').trim();
   }
 
-  // Generate concise step-by-step solutions and final answers for a list of problems.
-  // Returns an array aligned with the input order.
-  public async generateProblemSolutions(problems: string[]): Promise<Array<{ steps: string[]; answer: string }>> {
-    const system: ChatMessage = {
-      role: 'system',
-      content: [
-        'You generate concise step-by-step math solutions for K-12 practice problems.',
-        'Return strictly valid JSON only. No markdown, no code fences, no commentary.',
-        'Schema: {"solutions":[{"steps":["step 1","step 2"],"answer":"final answer"}, ...]}.',
-        'Match the number and order of input problems exactly. Keep 2-5 short steps per problem.',
-        'Use the degree symbol (°) for angle answers when appropriate.',
-      ].join('\n')
-    };
-    const user: ChatMessage = {
-      role: 'user',
-      content: `Problems (array): ${JSON.stringify(problems)}`
-    };
-
-    const resp = await this.sendCustomChat([system, user]);
-    const raw = (resp.message || '').trim();
-
-    // Try to parse JSON robustly (strip fences if any)
-    const cleaned = raw
-      .replace(/^```(json)?/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
-
-    try {
-      const parsed = JSON.parse(cleaned);
-      if (parsed && Array.isArray(parsed.solutions)) {
-        // Coerce structure
-        return parsed.solutions.map((s: any) => ({
-          steps: Array.isArray(s?.steps) ? s.steps.map((x: any) => String(x)) : [],
-          answer: s?.answer ? String(s.answer) : ''
-        }));
-      }
-    } catch (e) {
-      console.warn('Failed to parse solutions JSON', e, cleaned);
-    }
-    // Fallback: return empty solutions of matching length
-    return problems.map(() => ({ steps: [], answer: '' }));
-  }
+  // NOTE: Removed; solutions are generated inline by updateLessonPlanWithContext
 
   private async generateImageResponse(message: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
     // Generate both image and explanatory text
