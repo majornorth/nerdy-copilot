@@ -322,61 +322,32 @@ Would you like me to modify the code or create a different type of visualization
 
   // Direct chat with custom messages, bypassing math/image heuristics
   public async sendCustomChat(messages: ChatMessage[]): Promise<ChatResponse> {
-    // Prefer Supabase Edge Function if configured with a valid JWT-style key
-    const hasValidSupabaseJwt = this.supabaseAnonKey && this.supabaseAnonKey.includes('.') && this.supabaseAnonKey.split('.').length >= 3;
-    if (this.supabaseUrl && this.supabaseAnonKey && hasValidSupabaseJwt) {
-      const functionUrl = `${this.supabaseUrl}/functions/v1/openai-chat`;
-      try {
-        const response = await fetch(functionUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.supabaseAnonKey}`,
-            'Content-Type': 'application/json',
-            'x-client-info': 'tutor-copilot@1.0.0',
-            // Provide apikey as well for some environments
-            'apikey': this.supabaseAnonKey,
-          },
-          body: JSON.stringify({ messages }),
-        });
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Edge function failed: ${errorText}`);
-        }
-        return response.json();
-      } catch (error) {
-        console.warn('Supabase custom chat failed, falling back to direct:', error);
-        // Fall through to direct
-      }
+    if (!this.supabaseUrl || !this.supabaseAnonKey) {
+      throw new Error('Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.');
     }
-    return this.sendCustomChatDirect(messages);
-  }
 
-  private async sendCustomChatDirect(messages: ChatMessage[]): Promise<ChatResponse> {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured. Please set VITE_OPENAI_API_KEY in your environment variables.');
+    const functionUrl = `${this.supabaseUrl}/functions/v1/openai-chat`;
+    try {
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.supabaseAnonKey}`,
+          'Content-Type': 'application/json',
+          'x-client-info': 'tutor-copilot@1.0.0',
+          // Provide apikey as well for some environments
+          'apikey': this.supabaseAnonKey,
+        },
+        body: JSON.stringify({ messages }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Edge function failed: ${errorText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('Supabase Edge Function error:', error);
+      throw error;
     }
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        messages,
-        max_tokens: 1500,
-        temperature: 0.5,
-      }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
-    }
-    const data = await response.json();
-    const aiMessage = data.choices[0]?.message?.content;
-    if (!aiMessage) throw new Error('No response from AI');
-    return { message: aiMessage, usage: data.usage };
   }
 
   // Helper specialized for lesson plan updates to ensure HTML-only outputs
@@ -417,18 +388,11 @@ Would you like me to modify the code or create a different type of visualization
     // Generate both image and explanatory text
     const imagePrompt = this.createImagePrompt(message);
     
-    // If Supabase is configured, use Edge Function
-    if (this.supabaseUrl && this.supabaseAnonKey) {
-      try {
-        return await this.generateImageViaSupabase(message, imagePrompt, conversationHistory);
-      } catch (error) {
-        console.warn('Supabase image generation failed, falling back to direct API call:', error);
-        return this.generateImageDirect(message, imagePrompt, conversationHistory);
-      }
+    if (!this.supabaseUrl || !this.supabaseAnonKey) {
+      throw new Error('Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.');
     }
     
-    // Fallback to direct API call
-    return this.generateImageDirect(message, imagePrompt, conversationHistory);
+    return await this.generateImageViaSupabase(message, imagePrompt, conversationHistory);
   }
 
   private async generateImageViaSupabase(message: string, imagePrompt: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
@@ -468,79 +432,13 @@ Would you like me to modify the code or create a different type of visualization
     }
   }
 
-  private async generateImageDirect(message: string, imagePrompt: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured. Please set VITE_OPENAI_API_KEY in your environment variables.');
-    }
-
-    console.warn('Using direct OpenAI API calls for image generation. This exposes your API key in the browser and should only be used for development.');
-
-    try {
-      // Generate image using DALL-E 3
-      const imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'dall-e-3',
-          prompt: imagePrompt,
-          n: 1,
-          quality: 'standard',
-          response_format: 'url',
-          size: '1024x1024',
-          style: 'natural'
-        } as ImageGenerationRequest),
-      });
-
-      if (!imageResponse.ok) {
-        const errorText = await imageResponse.text();
-        console.error('DALL-E API error:', imageResponse.status, errorText);
-        throw new Error(`Failed to generate image: ${errorText}`);
-      }
-
-      const imageData: ImageGenerationResponse = await imageResponse.json();
-      const imageUrl = imageData.data[0]?.url;
-
-      if (!imageUrl) {
-        throw new Error('No image URL returned from DALL-E');
-      }
-
-      // Generate explanatory text using GPT
-      const textResponse = await this.sendTextMessage(
-        `I've created a visual diagram for your request: "${message}". Please provide a brief explanation of what the diagram shows and how it can be used for learning.`,
-        conversationHistory
-      );
-
-      return {
-        message: textResponse.message,
-        imageUrl: imageUrl,
-        usage: textResponse.usage
-      };
-
-    } catch (error) {
-      console.error('Direct image generation error:', error);
-      throw error;
-    }
-  }
 
   private async sendTextMessage(message: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
-    // If Supabase is configured, use Edge Function
-    if (this.supabaseUrl && this.supabaseAnonKey) {
-      try {
-        return await this.sendMessageViaSupabase(message, conversationHistory);
-      } catch (error) {
-        console.warn('Supabase Edge Function failed, falling back to direct API call:', error);
-        // Fall back to direct API call if Supabase fails
-        return this.sendMessageDirect(message, conversationHistory);
-      }
+    if (!this.supabaseUrl || !this.supabaseAnonKey) {
+      throw new Error('Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.');
     }
     
-    // Fallback to direct API call (less secure, for development only)
-    return this.sendMessageDirect(message, conversationHistory);
+    return await this.sendMessageViaSupabase(message, conversationHistory);
   }
 
   private async sendMessageViaSupabase(message: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
@@ -584,87 +482,6 @@ Would you like me to modify the code or create a different type of visualization
     }
   }
 
-  private async sendMessageDirect(message: string, conversationHistory: ChatMessage[]): Promise<ChatResponse> {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured. Please set VITE_OPENAI_API_KEY in your environment variables.');
-    }
-
-    console.warn('Using direct OpenAI API call. This exposes your API key in the browser and should only be used for development.');
-
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: `You are an AI tutoring assistant helping educators create better learning experiences. You specialize in:
-        - Creating engaging lesson plans
-        - Generating practice problems and solutions
-        - Simplifying complex topics for students
-        - Providing teaching strategies and tips
-        - Helping with curriculum development
-        
-        Always provide helpful, educational, and actionable responses. Keep your tone professional but friendly.`
-      },
-      ...conversationHistory,
-      {
-        role: 'user',
-        content: message
-      }
-    ];
-
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: messages,
-          max_tokens: 1000,
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData: OpenAIError;
-        
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
-        }
-        
-        // Handle specific error types
-        if (errorData.error?.code === 'insufficient_quota') {
-          throw new Error('OpenAI API quota exceeded. Please check your OpenAI account billing and usage at https://platform.openai.com/account/billing');
-        }
-        
-        if (errorData.error?.code === 'invalid_api_key') {
-          throw new Error('Invalid OpenAI API key. Please check your VITE_OPENAI_API_KEY environment variable.');
-        }
-        
-        throw new Error(`OpenAI API error: ${errorData.error?.message || errorText}`);
-      }
-
-      const data = await response.json();
-      const aiMessage = data.choices[0]?.message?.content;
-
-      if (!aiMessage) {
-        throw new Error('No response from AI');
-      }
-
-      return {
-        message: aiMessage,
-        usage: data.usage
-      };
-    } catch (error) {
-      console.error('Direct OpenAI API error:', error);
-      throw error;
-    }
-  }
 }
 
 export const openaiService = new OpenAIService();

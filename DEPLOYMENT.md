@@ -6,7 +6,7 @@ This guide will help you deploy your Tutor Copilot application to Netlify.
 
 - A GitHub account with your code pushed to a repository
 - A Netlify account (sign up at [netlify.com](https://www.netlify.com))
-- Your environment variables ready (OpenAI API key, and optionally Supabase credentials)
+- Your Supabase credentials ready (Supabase is required for secure API key storage)
 
 ## Deployment Steps
 
@@ -34,11 +34,17 @@ This guide will help you deploy your Tutor Copilot application to Netlify.
 4. **Set environment variables**
    - In the site settings, go to "Environment variables"
    - Add the following variables:
-     - `VITE_OPENAI_API_KEY` - Your OpenAI API key (required)
-     - `VITE_SUPABASE_URL` - Your Supabase project URL (optional, for production)
-     - `VITE_SUPABASE_ANON_KEY` - Your Supabase anonymous key (optional, for production)
+     - `VITE_SUPABASE_URL` - Your Supabase project URL (required)
+     - `VITE_SUPABASE_ANON_KEY` - Your Supabase anonymous key (required)
+   - **Important**: The OpenAI API key is stored securely in Supabase Edge Functions secrets (see step 5)
 
-5. **Deploy**
+5. **Configure Supabase Edge Functions**
+   - Go to your Supabase project dashboard
+   - Navigate to Project Settings → Edge Functions → Secrets
+   - Add a secret named `OPENAI_API_KEY` with your OpenAI API key value
+   - This keeps your API key secure and never exposes it to the client
+
+6. **Deploy**
    - Click "Deploy site"
    - Wait for the build to complete
    - Your site will be live at a URL like `https://your-site-name.netlify.app`
@@ -69,15 +75,28 @@ This guide will help you deploy your Tutor Copilot application to Netlify.
 
 ## Environment Variables
 
+### Netlify Environment Variables
+
 Make sure to set these in Netlify's dashboard under Site settings → Environment variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `VITE_OPENAI_API_KEY` | Yes | Your OpenAI API key |
-| `VITE_SUPABASE_URL` | No | Supabase project URL (for production) |
-| `VITE_SUPABASE_ANON_KEY` | No | Supabase anonymous key (for production) |
+| `VITE_SUPABASE_URL` | Yes | Your Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Your Supabase anonymous key (safe to expose publicly) |
 
-**Important**: Never commit your `.env` file to Git. Always use Netlify's environment variables interface.
+### Supabase Edge Functions Secrets
+
+Set your OpenAI API key securely in Supabase (not in Netlify):
+
+1. Go to Supabase Dashboard → Project Settings → Edge Functions → Secrets
+2. Add a secret:
+   - **Name**: `OPENAI_API_KEY`
+   - **Value**: Your OpenAI API key
+
+**Important**: 
+- Never commit your `.env` file to Git
+- Never set `VITE_OPENAI_API_KEY` in Netlify (it would expose your key in the browser)
+- The OpenAI API key must be stored in Supabase Edge Functions secrets only
 
 ## Post-Deployment
 
@@ -110,7 +129,8 @@ Make sure to set these in Netlify's dashboard under Site settings → Environmen
 
 ## Security Notes
 
-- Your `VITE_OPENAI_API_KEY` will be exposed in the browser bundle
-- For production, consider using Supabase Edge Functions to keep API keys secure
-- See the main README.md for details on setting up Supabase Edge Functions
+- **OpenAI API key is stored securely** in Supabase Edge Functions secrets (server-side only)
+- The client only uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (safe to expose)
+- All OpenAI API calls go through Supabase Edge Functions, keeping your API key secure
+- This setup is safe for public GitHub repositories and iframe embedding
 
