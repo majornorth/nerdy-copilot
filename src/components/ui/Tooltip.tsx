@@ -170,7 +170,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const tooltipElement = isVisible ? (
     <div
       className={cn(
-        'fixed px-3 py-2 text-sm font-medium text-white rounded-lg shadow-lg pointer-events-none select-none break-words',
+        'fixed px-3 py-2 text-sm font-medium text-white rounded-lg shadow-lg pointer-events-none select-none whitespace-nowrap',
         'transition-opacity duration-200',
         showTooltip ? 'opacity-100' : 'opacity-0',
         getTransformClasses(),
