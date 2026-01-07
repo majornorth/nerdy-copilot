@@ -517,33 +517,6 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
 
       block.style.position = block.style.position || 'relative';
 
-      // Add hover "Add to board" button for accessibility (read-only only)
-      if (!editable && !block.querySelector('.vt-add-to-board')) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'vt-add-to-board';
-        btn.setAttribute('aria-label', 'Add to board');
-        btn.title = 'Add to board';
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-        btn.addEventListener('click', async (ev) => {
-          ev.preventDefault(); ev.stopPropagation();
-          try {
-            const img = block.querySelector('img') as HTMLImageElement | null;
-            if (img?.src) {
-              const mod = await import('../../../services/whiteboardBridge');
-              await mod.addToBoard({ type: 'url', url: img.src, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: (block.tagName || '').toLowerCase() } });
-            } else {
-              const text = (block.innerText || '').trim();
-              if (text) {
-                const mod = await import('../../../services/whiteboardBridge');
-                await mod.addToBoard({ type: 'text', text, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: (block.tagName || '').toLowerCase() } });
-              }
-            }
-          } catch (e) { console.warn('Add to board failed', e); }
-        });
-        block.appendChild(btn);
-      }
-
       function setDragRange(e: DragEvent) {
         const state = ed.view.state;
         const fromPos = ed.view.posAtDOM(block, 0);
@@ -662,32 +635,6 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       li.setAttribute('draggable', 'true');
       li.style.position = li.style.position || 'relative';
 
-      if (!editable && !li.querySelector('.vt-add-to-board')) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'vt-add-to-board';
-        btn.setAttribute('aria-label', 'Add to board');
-        btn.title = 'Add to board';
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-        btn.addEventListener('click', async (ev) => {
-          ev.preventDefault(); ev.stopPropagation();
-          try {
-            const img = li.querySelector('img') as HTMLImageElement | null;
-            if (img?.src) {
-              const mod = await import('../../../services/whiteboardBridge');
-              await mod.addToBoard({ type: 'url', url: img.src, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'li' } });
-            } else {
-              const text = (li.innerText || '').trim();
-              if (text) {
-                const mod = await import('../../../services/whiteboardBridge');
-                await mod.addToBoard({ type: 'text', text, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'li' } });
-              }
-            }
-          } catch (e) { console.warn('Add to board failed', e); }
-        });
-        li.appendChild(btn);
-      }
-
       const setDragRange = (e: DragEvent) => {
         const state = ed.view.state;
         const fromPos = ed.view.posAtDOM(li, 0);
@@ -768,23 +715,6 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       const bm = el as HTMLElement;
       bm.setAttribute('draggable', 'true');
       bm.classList.add('draggable-node');
-      if (!editable && !bm.querySelector('.vt-add-to-board')) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'vt-add-to-board';
-        btn.setAttribute('aria-label', 'Add to board');
-        btn.title = 'Add to board';
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-        btn.addEventListener('click', async (ev) => {
-          ev.preventDefault(); ev.stopPropagation();
-          try {
-            const latex = getLatexFromBlock(bm) || (bm.innerText || '').trim();
-            const mod = await import('../../../services/whiteboardBridge');
-            await mod.addToBoard({ type: 'math', latex, display: true, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'math-block' } });
-          } catch (e) { console.warn('Add to board failed', e); }
-        });
-        bm.appendChild(btn);
-      }
       bm.addEventListener('dragstart', (e: DragEvent) => {
         try {
           const text = (bm.innerText || '').trim();
@@ -811,27 +741,6 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
       if (!parent) return;
       parent.style.position = parent.style.position || 'relative';
       parent.classList.add('draggable-block');
-      if (!editable && !parent.querySelector('.vt-add-to-board.vt-under-image')) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'vt-add-to-board vt-under-image';
-        btn.setAttribute('aria-label', 'Add image to board');
-        btn.title = 'Add to board';
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-        btn.addEventListener('click', async (ev) => {
-          ev.preventDefault(); ev.stopPropagation();
-          try {
-            const url = img.src;
-            if (url) {
-              const mod = await import('../../../services/whiteboardBridge');
-              await mod.addToBoard({ type: 'url', url, meta: { source: 'lesson', lessonItemId: lessonPlanId, elementType: 'img' } });
-            }
-          } catch (e) { console.warn('Add image to board failed', e); }
-        });
-        // Place directly under the image
-        if (img.nextSibling) parent.insertBefore(btn, img.nextSibling);
-        else parent.appendChild(btn);
-      }
     });
 
     // Hint to drop targets that copy is preferred
@@ -1234,36 +1143,9 @@ export const InlineEditor: React.FC<InlineEditorProps> = ({
         .inline-editor .ProseMirror > .draggable-block:hover {
           background: rgba(74, 75, 182, 0.02);
         }
-        /* Add-to-board button */
+        /* Add-to-board button - hidden when not in edit mode */
         .inline-editor .ProseMirror .vt-add-to-board {
-          position: absolute;
-          right: 6px;
-          top: 6px;
-          width: 22px;
-          height: 22px;
-          border-radius: 9999px;
-          background: white;
-          color: #4A4BB6;
-          border: 1px solid #E5E7EB; /* gray-200 */
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-          opacity: 0;
-          transition: opacity .12s ease, transform .12s ease;
-          z-index: 100;
-        }
-        .inline-editor .ProseMirror .draggable-block:hover > .vt-add-to-board,
-        .inline-editor .ProseMirror .vt-add-to-board:focus {
-          opacity: 1;
-        }
-        .inline-editor .ProseMirror .vt-add-to-board:hover { transform: scale(1.05); }
-        /* Position tweak when on images */
-        .inline-editor .ProseMirror .vt-add-to-board.vt-under-image {
-          position: static !important;
-          right: auto; top: auto;
-          margin-top: 6px;
-          opacity: 1; /* always visible below image */
+          display: none !important;
         }
         /* Hide drag handle UI entirely */
         .inline-editor .ProseMirror > .draggable-block .drag-handle { display: none !important; }

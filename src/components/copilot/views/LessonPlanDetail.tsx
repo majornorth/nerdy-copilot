@@ -805,29 +805,31 @@ export const LessonPlanDetail: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="px-6 py-3 border-b border-gray-100 h-[52px] flex items-center">
+      <div className="px-6 py-2 border-b border-gray-100 h-[52px] flex items-center">
         <div className="flex items-center justify-between w-full">
-          <button
-            onClick={handleBackClick}
-            className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft size={20} weight="regular" />
-          </button>
-          
-          <div className="flex items-center gap-3">
+          {!isEditing && (
             <button
-              onClick={handleEditToggle}
-              className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm font-medium h-8 transition-colors ${
-                isEditing
-                  ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' 
-                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-              }`}
+              onClick={handleBackClick}
+              className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
             >
-              {isEditing ? 'Done' : 'Edit'}
+              <ArrowLeft size={20} weight="regular" />
             </button>
-            
-            {/* Save Status Indicator */}
-            {isEditing && (
+          )}
+          
+          {isEditing && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleEditToggle}
+                className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm font-medium h-8 transition-colors ${
+                  isEditing
+                    ? 'bg-brand-primary text-white border-brand-primary hover:bg-brand-primary-hover' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {isEditing ? 'Done' : 'Edit'}
+              </button>
+              
+              {/* Save Status Indicator */}
               <div className="flex items-center gap-2 text-sm">
                 {(saveStatus === 'saving' || isSaving) && (
                   <span className="text-blue-600 flex items-center gap-1">
@@ -836,7 +838,7 @@ export const LessonPlanDetail: React.FC = () => {
                   </span>
                 )}
                 {saveStatus === 'saved' && lastSaved && (
-                  <span className="text-green-600">
+                  <span className="text-gray-600">
                     Saved
                   </span>
                 )}
@@ -857,6 +859,21 @@ export const LessonPlanDetail: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          
+          <div className="flex items-center gap-3 ml-auto">
+            {!isEditing && (
+              <button
+                onClick={handleEditToggle}
+                className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg text-sm font-medium h-8 transition-colors ${
+                  isEditing
+                    ? 'bg-brand-primary text-white border-brand-primary hover:bg-brand-primary-hover' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {isEditing ? 'Done' : 'Edit'}
+              </button>
             )}
             
             <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium h-8">
